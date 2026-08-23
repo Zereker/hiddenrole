@@ -1,0 +1,7 @@
+# Claude Code's agent worktrees; a tool artifact
+.claude/worktrees/
+.env
+.idea
+
+# go test -coverprofile output (the README and CI both produce it)
+coverage.out

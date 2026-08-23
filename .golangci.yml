@@ -1,0 +1,34 @@
+# golangci-lint configuration
+# Docs: https://golangci-lint.run/usage/configuration/
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    # unused: catches write-only fields and unexported functions nobody calls.
+    # A batch of identifiers -- PhaseStep.Order/Required/Multiple, State.SubStep
+    # and others -- were once declared and never read, and CI could not see it
+    # at all.
+    - unused
+
+  exclusions:
+    # Nothing is excluded.
+    #
+    # Tests were once excluded wholesale, and tests are two thirds of the code
+    # -- which left two thirds unwatched. Opening it up immediately turned up
+    # several cases that ignored a returned error and had therefore been
+    # passing wrongly all along, one of which had never actually started a game
+    # because its board was invalid.
+
+    # Enable the general-purpose exclusion presets.
+    presets:
+      - std-error-handling
+      - common-false-positives
