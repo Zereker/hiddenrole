@@ -1,24 +1,33 @@
 # Before you change this kernel
 
-## The API is frozen
+## The API is pinned, not frozen
 
-The exported surface is pinned jointly by [`API.md`](API.md) and
-[`testdata/api.golden`](testdata/api.golden), guarded by
-`TestAPI_SurfaceIsPinned`: **change a name or a signature and the test goes
-red**. The public sub-package `enginetest` is in there too.
+The exported surface is pinned by [`testdata/api.golden`](testdata/api.golden),
+guarded by `TestAPI_SurfaceIsPinned`: **change a name or a signature and the
+test goes red**. The public sub-package `enginetest` is in there too, and
+Appendix A of [`API.md`](API.md) is checked against the same file by
+`TestAPI_AppendixMatchesTheGolden`.
+
+Pinned means a change cannot happen **quietly**. It does not mean the surface
+is settled -- [`API.md`](API.md) withdrew that claim and says why. This library
+is pre-1.0: the API may change, and each change has to be deliberate and
+recorded.
 
 Changing the exported surface means doing three things together; any one of
 them missing does not count:
 
-1. Have a **specific reason you actually ran into** -- some rules package
-   could not be written because of it, or the way around it would tell a lie.
-   "I think this is nicer" does not count.
+1. Have a **specific reason you actually ran into**: some rules package could
+   not be written because of it, the way around it would tell a lie, or the
+   shape is wrong on its own terms when read against the mature systems this
+   kernel resembles. "I think this is nicer" does not count.
 2. Update the golden baseline:
    `go test . -run TestAPI_SurfaceIsPinned -update-api-golden`
-3. Update `API.md` (the body and Appendix A)
+3. Update `API.md`'s body. Appendix A is checked by a test, which will name
+   exactly what is missing.
 
-[`API.md` §15](API.md) lists the four conditions under which reopening the
-freeze is worth it.
+[`API.md` §15](API.md) lists the five kinds of pressure that are worth moving
+the surface for. Only one of them has ever fired, and it was not on the list
+until after it did -- so treat the list as a record, not a gate.
 
 ## A rule cannot live only in a comment
 

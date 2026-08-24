@@ -36,16 +36,18 @@ two of which share a single value:
 | [werewolf/missions](https://github.com/Zereker/werewolf/tree/main/missions) | mission-based play (nominate / vote / mission / assassinate) | it runs with **nobody ever eliminated**; transitions are decided by resolution results |
 | [werewolf/onenight](https://github.com/Zereker/werewolf/tree/main/onenight) | one-night card swapping | identity has **two layers**: the card dealt decides what you do at night, the card in hand decides which side you score for |
 
-Writing the third one forced **zero breaking API changes** -- [the API is
-frozen](API.md), guarded by `TestAPI_SurfaceIsPinned` and
+Writing the third one forced **zero breaking API changes**. The surface is
+[pinned, not frozen](API.md), guarded by `TestAPI_SurfaceIsPinned` and
 [`testdata/api.golden`](testdata/api.golden): change a name or a signature and
-the test goes red.
+the test goes red, so a change is deliberate rather than quiet. It has been
+moved once since, deliberately -- and all three rules packages are by one
+author, which is why "pinned" is as far as the claim goes.
 
 ## Where to start reading
 
 | To find out | Read |
 |---|---|
-| **which APIs exist and what each promises** | [API.md](API.md) 🔒 frozen |
+| **which APIs exist and what each promises** | [API.md](API.md) — pinned, not frozen |
 | **what it should look like, and why so abstract** | [DESIGN.md](DESIGN.md) |
 | how the code is organised today | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | how others did it, where we are ahead and where we are behind | [PRIOR-ART.md](PRIOR-ART.md) |

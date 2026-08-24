@@ -31,15 +31,17 @@ go get github.com/Zereker/hiddenrole
 | [werewolf/missions](https://github.com/Zereker/werewolf/tree/main/missions) | 任务制（提名 / 表决 / 任务 / 刺杀） | **一个人都不出局**也能跑；阶段流转由结算结果决定 |
 | [werewolf/onenight](https://github.com/Zereker/werewolf/tree/main/onenight) | 单夜换牌制 | 身份**分两层**：发到手的那张定夜里做什么，手上那张定结算算哪边 |
 
-第三套写下来只逼出**零个破坏性 API 变更**——[API 已冻结](API.md)，
-由 `TestAPI_SurfaceIsPinned` 与 [`testdata/api.golden`](testdata/api.golden)
-守着：名字或签名变了，测试就红。
+第三套写下来只逼出**零个破坏性 API 变更**。表面是
+[钉住的，不是冻结的](API.md)，由 `TestAPI_SurfaceIsPinned` 与
+[`testdata/api.golden`](testdata/api.golden) 守着：名字或签名变了，测试就红
+——变更因此是**刻意的**而不是悄悄发生的。此后它被刻意动过一次；而三套规则包
+出自同一作者，这就是为什么这个说法只到「钉住」为止。
 
 ## 从哪儿开始读
 
 | 想知道 | 看哪份 |
 |---|---|
-| **有哪些 API、各承诺什么** | [API.md](API.md) 🔒 已冻结 |
+| **有哪些 API、各承诺什么** | [API.md](API.md) —— 钉住，未冻结 |
 | **该长成什么样、为什么这么抽象** | [DESIGN.md](DESIGN.md) |
 | 现在的代码怎么组织的 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 别人怎么做的，我们哪里强、哪里欠 | [PRIOR-ART.md](PRIOR-ART.md) |

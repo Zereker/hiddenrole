@@ -11,8 +11,8 @@ That boundary decides everything below it.
 
 > This describes the structure of the code as it stands. For what it *should*
 > look like and why, see [DESIGN.md](DESIGN.md); for how it compares with
-> other engines, see [PRIOR-ART.md](PRIOR-ART.md); for the frozen surface, see
-> [API.md](API.md).
+> other engines, see [PRIOR-ART.md](PRIOR-ART.md); for the pinned surface and
+> what moves it, see [API.md](API.md).
 
 ## Principles
 

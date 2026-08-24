@@ -4,8 +4,9 @@
 > like to carry the whole class of social deduction games, and not just
 > werewolf?**
 >
-> **The API is frozen** -- the contract clause by clause and the freeze
-> declaration are in [API.md](API.md), and the order in which we got here is
+> **The API is pinned, not frozen** -- the contract clause by clause, and why
+> the freeze that once stood there was withdrawn, are in
+> [API.md](API.md); the order in which we got here is
 > in [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md)
 > (archived). The structure of the code as it stands is in
 > [ARCHITECTURE.md](ARCHITECTURE.md), and the comparison with other engines is
@@ -518,7 +519,7 @@ from "a variable table plus two privileged fields" into "a variable table".
 
 | Gap | What it might block |
 |---|---|
-| victory has a single `Camp` | **One Night has run into it** (the tanner can win alongside the villagers, a routine outcome of the base game). Judged as **wait for a second collision** -- it is the only breaking signature change, and one ruleset is not enough to move an interface that was just frozen |
+| victory has a single `Camp` | **One Night has run into it** (the tanner can win alongside the villagers, a routine outcome of the base game). Judged as **wait for a second collision**: one ruleset running into a limit is a data point, not a generalisation, and the fix is a breaking signature change every implementer has to follow. This used to lean on the surface having just been frozen; that is no longer the reason, and the reason it still holds is the sample size |
 | `SkillUse.Targets` can only hold player IDs | **One Night has run into it** (looking at a centre card). Judged as **not fixing it for now**: the way around it (encoding the index into the skill name) is ugly and tells no lie, at a cost of 15 lines |
 | one `Resolver` per phase for **resolution itself** | games whose phase resolution is heavily reused. Reacting to another rule's effect is no longer part of this gap; producing one still is |
 | the kernel has no randomness | games that draw or roll during play (**it was added once, and removed for having no users**) |
@@ -540,7 +541,8 @@ proposed again.
 
 | Will not | Why |
 |---|---|
-| **fill in APIs from a comparison table** | `Rand` came from exactly that: added against boardgame.io's table, sound design, zero users, deleted. **A comparison tells you what you are missing; it cannot tell you whether you need it.** |
+| **fill in APIs from a comparison table** | `Rand` came from exactly that: added against boardgame.io's table, sound design, zero users, deleted. **A comparison tells you what you are missing; it cannot tell you whether you need it.** But read the next row before applying this one -- a missing *feature* and a wrong *shape* are not the same finding, and this rule is about the first |
+| **(not a refusal) confuse "a feature is missing" with "the shape is wrong"** | A comparison surfaced both kinds. `Rand` was the first: a capability nobody wanted, correctly deleted. The durable log, somewhere to intercept another rule's effect, and a compound phase were the second: nothing was missing, the arrangement was wrong, and each had a workaround unpleasant enough that no rules package would ever have forced the issue. The first kind waits for a user. **The second kind does not get one**, which is why it has to be judged by reading rather than by waiting -- see [API.md §15](API.md) |
 | **add abstraction for "it might be useful later"** | a generalisation from a sample of two is not a generalisation, it is a guess. Wait for the third. |
 | **build any role, phase or skill into the kernel** | I5. Break this and the second rules package cannot be built. |
 | **merge the three faces (§5.3)** | it would demote a compile-time guarantee into a runtime judgement. |

@@ -23,12 +23,12 @@
 // test harness for users of the library, not the thing under test.**
 //
 // It used to be called `internal/gamefuzz`, on the grounds that "a test-only
-// thing should not add a name to an API that was just frozen". That position
+// thing should not add a name to an API that had just been pinned". That position
 // stopped working once **the engine became its own module** -- Go's rule is
 // that `internal/` can only be imported from within the same module, and the
 // rules packages now live in another one and could not use a line of it.
 //
-// Being public, it is guarded by the freeze: TestAPI_SurfaceIsPinned pins
+// Being public, it is pinned too: TestAPI_SurfaceIsPinned pins
 // this sub-package too, or it would become a back door around that
 // discipline.
 //

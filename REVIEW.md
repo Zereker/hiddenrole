@@ -417,8 +417,22 @@ pending submissions are bounded. The fourth, lesser item is done too.
 
 **§4 and the rest.** The evidence-standard finding stands unaddressed by
 definition -- it asks for a fourth rules package by somebody else, which is
-not something a change to this repository can supply. The missing git tag is
-likewise still missing, and now matters more: the surface moved.
+not something a change to this repository can supply. It is now, however,
+**written into the API document as the reason the freeze came down**, so the
+claim and the evidence for it no longer disagree.
+
+The missing git tag was half of a contradiction: an API declared frozen, with
+no version anybody outside could depend on. It was resolved from the other
+end. `API.md` no longer claims the surface is settled -- it says pinned,
+pre-1.0, and lists the four reasons the freeze could not be justified (the
+evidence was one author's; its own first criterion had never been tested; the
+surface broke anyway, by a trigger its list did not contain; and with no tag,
+nobody outside could have relied on it in any case).
+
+That leaves a coherent position rather than a fixed finding: **a pre-1.0
+library with a pinned surface and no tag** is an ordinary state of affairs,
+where a frozen one without a tag was not. A tag is still worth adding, and it
+is now a small decision instead of a claim that needed backing.
 
 One thing was fixed that the review did not name. `enginetest.RunFuzz` had no
 caller in this repository, so the seven invariants -- the strongest

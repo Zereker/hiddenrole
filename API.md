@@ -1,60 +1,63 @@
 # The kernel's API
 
-> ## 🔒 Frozen
+> ## Pinned, not frozen
 >
-> **What is frozen is this document plus
-> [`testdata/api.golden`](testdata/api.golden).** The latter is the
-> machine-readable baseline, guarded by `TestAPI_SurfaceIsPinned`: change a
-> name or a signature and the test goes red.
+> **The exported surface is pinned by
+> [`testdata/api.golden`](testdata/api.golden)**, guarded by
+> `TestAPI_SurfaceIsPinned`: change a name or a signature and the test goes
+> red. Appendix A of this document is checked against that file in both
+> directions by `TestAPI_AppendixMatchesTheGolden`.
 >
-> **Frozen does not mean "never changes"**, it means three disciplines:
+> Pinned means **a change cannot happen quietly**. It does not mean the
+> surface is settled, and this document no longer claims that it is.
+>
+> ### Why the freeze was withdrawn
+>
+> It used to open with "🔒 Frozen". Four things were wrong with that, and none
+> of them is a change of heart -- each was already written down elsewhere in
+> this repository:
+>
+> 1. **The evidence was one author's.** The freeze rested on three
+>    independent rules packages, and all three live in one repository by one
+>    person. This project's own standard is *"a generalisation from a sample
+>    of two is not a generalisation, it is a guess -- wait for the third"*;
+>    measured by it, that is one mind's blind spots exercised three times.
+>    Independent validation has not happened once.
+> 2. **Its own first criterion was never tested.** [§15](#15-what-moves-the-surface)
+>    said so plainly: *"the fourth rules package is this criterion's first
+>    real exam."* The exam has not been sat.
+> 3. **The surface broke anyway**, by a trigger the freeze's own list did not
+>    contain -- see the fifth row in §15.
+> 4. **Nobody outside could rely on it.** There is no semantic version tag, so
+>    a consumer runs `go get` and receives a pseudo-version. A freeze that
+>    cannot be depended on from outside is a note to oneself.
+>
+> ### What survives the withdrawal
+>
+> The three disciplines the freeze existed to enforce were the valuable part,
+> and they do not need a freeze to hold:
 >
 > 1. **A breaking change needs a specific reason somebody ran into** -- some
->    rules package could not be written because of it, or the way around it
->    would tell a lie. "I think this is nicer" does not count.
+>    rules package could not be written because of it, the way around it would
+>    tell a lie, or the shape is wrong on its own terms when read against the
+>    systems this kernel resembles. "I think this is nicer" does not count.
+>    (The third clause is new; it is the one the freeze's list was missing.)
 > 2. **Adding is harder than removing.** What is added cannot be taken back;
 >    before removing, you have to answer "who uses this".
 > 3. **A change cannot happen quietly.** Changing the exported surface means
->    updating the golden baseline and this document at the same time, and that
->    step is explicit.
+>    updating the golden baseline and this document together, and the tests
+>    make that step explicit rather than remembered.
 >
-> The state at the freeze: **three independent rules packages** (werewolf,
-> mission-based, one-night card swapping), a kernel of 55 types / 24
-> package-level functions / 56 methods / 20 interface methods / 62 constants
-> and variables, and **not one exported name without a user**.
+> The honest description of where this library stands is **pre-1.0 with a
+> pinned surface**: the API may change, changes are deliberate and recorded,
+> and the day an outside author has written a rules package against it is the
+> day "settled" becomes a claim worth making.
 >
-> What would reopen it: see [§15](#15-what-would-reopen-the-freeze).
-
-> **This document is the thing that is frozen -- and the freeze has been
-> broken once, deliberately.**
->
-> It lists **every** exported name in `github.com/Zereker/hiddenrole` and says
-> what each one promises.
->
-> A structural review ([REVIEW.md](REVIEW.md)) found three things that could
-> not be fixed without changing the surface: the effect log could not be
-> written down, a rule had nowhere to stand between another rule's effect and
-> the write point, and the phase graph could not express a group of phases.
-> Each was a shape problem rather than a missing feature, so each cost
-> signatures.
->
-> **None of them was one of the four triggers [§15](#15-what-would-reopen-the-freeze)
-> had written down.** All four of those anticipate a *rules package* running
-> into a limit; these came from reading the kernel against the mature systems
-> it resembles. That is worth recording as a miss in how the freeze was
-> framed, not just as an event: a list of ways the contract might have to
-> move, drawn up entirely from downstream pressure, had no room for "the
-> shape is wrong on its own terms". §15 now has a fifth row.
->
-> The design intent is in [DESIGN.md](DESIGN.md) and the implementation order
-> in [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md).
-> This document is about the **contract** only: what exists, how to use it,
-> and whether it changes.
->
-> Current size: **60 types, 25 package-level functions, 60 methods, 74
-> constants and variables**, plus 6 names in the public sub-package
-> `enginetest` (see Appendix B). Appendix A is the complete listing, used for
-> comparison after the freeze.
+> This document lists **every** exported name in
+> `github.com/Zereker/hiddenrole` and says what each one promises. The design
+> intent is in [DESIGN.md](DESIGN.md), the structural review that last moved
+> the surface is in [REVIEW.md](REVIEW.md), and the implementation order is in
+> [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md).
 
 ---
 
@@ -759,7 +762,7 @@ never landed" shows up in a unit test.
 
 ---
 
-## 14. Clearing the books before the freeze (**seven items, all handled**)
+## 14. Clearing the books before pinning the surface (**seven items, all handled**)
 
 Seven inconsistencies found by going through the API line by line while
 writing this document. All cleared.
@@ -795,11 +798,12 @@ $ go test .
     added:   [func SneakyExport]
     removed: []
 
-    This is not an error, it is a reminder: the exported surface is what
-    API.md declares frozen.
+    This is not an error, it is a reminder: the exported surface is pinned,
+    so that a change to it is deliberate rather than quiet.
     Confirm the change is intended, then do two things together --
       1. go test . -run TestAPI_SurfaceIsPinned -update-api-golden
-      2. update API.md (the body and Appendix A)
+      2. update API.md (the body; Appendix A is checked by
+    TestAPI_AppendixMatchesTheGolden, which will tell you exactly what to add)
 ```
 
 All three directions -- a quiet addition, a quiet removal, a quiet signature
@@ -810,12 +814,12 @@ nothing about the test itself.
 
 ---
 
-## 15. What would reopen the freeze
+## 15. What moves the surface
 
-A freeze has to be overturnable, or it is only a slogan. Any one of the four
-below reopens the corresponding part:
+A pinned surface has to be movable, or the pin is a padlock. Any one of the
+below is a reason worth taking:
 
-| Trigger | What reopens | Where it stands |
+| Trigger | What it moves | Where it stands |
 |---|---|---|
 | **a second rules package runs into "victory has exactly one winner"** | `VictoryChecker`'s signature becomes `winners []Camp` | one-night card swapping has run into it once (the tanner winning alongside the villagers). Blood on the Clocktower's travellers scoring separately is most likely the second |
 | **the "a target must be a player" encoding starts lying, or combinatorially explodes** | `PhaseStep` gains a `TargetKind` | one-night card swapping ran into it, but the way around it is ugly without being false, at a cost of 15 lines |
@@ -827,7 +831,8 @@ below reopens the corresponding part:
 
 The four rows above share an assumption: that pressure on the contract comes
 from **downstream**, from a rules package running into a limit. That is where
-three rules packages' worth of experience said to look.
+three rules packages' worth of experience said to look, and it is the
+assumption that made the freeze look safer than it was.
 
 It is not where the next break came from. A review read the kernel against
 the mature systems it resembles -- event-sourced stores, card-game rules
@@ -847,20 +852,28 @@ comparison. That is the same lesson `PRIOR-ART.md` already records in one
 direction -- *a comparison tells you what you are missing; it cannot tell you
 whether you need it* -- read in the other: **a rules package tells you what
 hurts; it cannot tell you what is misshapen.** Neither test substitutes for
-the other, and the freeze criteria only had the first.
+the other, and the criteria only had the first.
 
-### The first criterion has not been tested by itself yet
+That is also the concrete reason the freeze came down rather than being
+amended. A list of ways a contract might have to move, drawn up entirely from
+downstream pressure, had no room for "the shape is wrong on its own terms" --
+and the first thing that actually moved the surface came from exactly there.
+A freeze whose trigger list misses the trigger that fires is not a discipline,
+it is a label.
 
-The freeze's first criterion is "**the next rules package no longer forces a
-breaking API change**". That criterion was only phrased this way after the
-third rules package was written -- **the third was written under the old
-criterion** -- so strictly speaking the new one has not yet been tested
-against a real rules package.
+### The criterion that has still never been tested
 
-Writing this down is not a discount on the freeze, it is being clear about its
-reach: **the fourth rules package is this criterion's first real exam**. If it
-forces a breaking change, the freeze came too early; if it forces only changes
-with zero exported names (as the third did), the freeze holds.
+The criterion was "**the next rules package no longer forces a breaking API
+change**". It was phrased this way only after the third rules package was
+written -- **the third was written under the old criterion** -- so it has
+never been tested against a real rules package, and it still has not been.
+
+**The fourth rules package is this criterion's first real exam, and it should
+be written by somebody else.** Every verification mechanism in this repository
+-- the golden file, the seven invariants, the mutation testing -- checks that
+the kernel does what its author expects. None of them can tell you whether the
+API is usable by a person who did not design it. That is the one test standing
+between "pinned" and any stronger claim.
 
 ---
 
@@ -912,15 +925,16 @@ It used to be called `internal/gamefuzz`. `internal/` can only be imported
 from within the same module, and the engine had to become its own library --
 the rules packages then live in another module and could not use a line of it.
 Being public, it is pinned by `TestAPI_SurfaceIsPinned` along with everything
-else, or it would be a back door around the freeze.
+else, or it would be a back door around that discipline.
 
 ---
 
 ## Appendix A: the complete listing of exported names
 
-**The freeze baseline.** Guarded by `TestAPI_SurfaceIsPinned` and
+**The pinned surface.** Guarded by `TestAPI_SurfaceIsPinned` and
 `testdata/api.golden` -- change a **name or a signature** and the test goes
-red.
+red -- and this listing is checked against that file by
+`TestAPI_AppendixMatchesTheGolden`, so the two cannot drift.
 
 In total **60 types / 25 package-level functions / 60 methods / 22 interface
 methods / 74 constants and variables**. They are listed by name below; the
@@ -1058,15 +1072,16 @@ It used to be called `internal/gamefuzz`. `internal/` can only be imported
 from within the same module, and the engine had to become its own library --
 the rules packages then live in another module and could not use a line of it.
 Being public, it is pinned by `TestAPI_SurfaceIsPinned` along with everything
-else, or it would be a back door around the freeze.
+else, or it would be a back door around that discipline.
 
 ---
 
 ## Appendix A: the complete listing of exported names
 
-**The freeze baseline.** Guarded by `TestAPI_SurfaceIsPinned` and
+**The pinned surface.** Guarded by `TestAPI_SurfaceIsPinned` and
 `testdata/api.golden` -- change a **name or a signature** and the test goes
-red.
+red -- and this listing is checked against that file by
+`TestAPI_AppendixMatchesTheGolden`, so the two cannot drift.
 
 In total **55 types / 24 package-level functions / 56 methods / 20 interface
 methods / 62 constants and variables**. They are listed by name below; the
