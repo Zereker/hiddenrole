@@ -71,10 +71,9 @@ across the repository.
 | Package | Language | Implements |
 |---|---|---|
 | the kernel (root) | **English** | nothing; it knows no game |
-| [`example/werewolf/`](example/werewolf) | **Chinese** | the Chinese ruleset of Werewolf |
+| [`example/werewolf/`](example/werewolf) | **Chinese** | the Chinese ruleset of Werewolf, and the four runnable programs beside it |
 | [`example/missions/`](example/missions) | **English** | The Resistance and its Avalon variant |
 | [`example/onenight/`](example/onenight) | **English** | One Night Ultimate Werewolf |
-| [`cmd/`](cmd) | **Chinese** | all four programs host a game of Werewolf, so they follow that package |
 
 The kernel is a library strangers import, and its comments carry the reasoning
 -- why it recognises no value of its own, why the three faces are not merged.
@@ -116,13 +115,14 @@ make lint              # golangci-lint
 make check             # all of the above, plus gofmt and go vet
 ```
 
-The four programs under `cmd/` all run as-is; after changing the API, check
-they are still alive:
+The four programs beside `example/werewolf/` all run as-is; after changing the
+API, check they are still alive (`make examples` does exactly this):
 
 ```sh
-go run ./cmd/demo                          # each interface demonstrated
-printf 'run\nquit\n' | go run ./cmd/cli     # play a game start to finish
-go run ./cmd/extension                     # a third-party role (the idiot)
+go run ./example/werewolf/demo       # every interface demonstrated
+go run ./example/werewolf/cli        # a host console, playable start to finish
+go run ./example/werewolf/netserver  # a TCP server (push, concurrency, reconnect)
+go run ./example/werewolf/extension  # a third-party role (the idiot)
 ```
 
 ## What a good change looks like

@@ -53,9 +53,12 @@ go get github.com/Zereker/hiddenrole
 ├── enginetest/       随机对局与七条通用不变量，给你自己的规则包用
 ├── example/          三套规则包，互相平级，都只用公开 API
 │   ├── werewolf/     狼人杀（中文规则）
+│   │   ├── demo/       跑得起来：各接口的用法演示
+│   │   ├── cli/        跑得起来：命令行主持台，能从头玩完一局
+│   │   ├── netserver/  跑得起来：TCP 服务端（推送、并发、断线重连）
+│   │   └── extension/  跑得起来：一个引擎没为它准备过的第三方角色
 │   ├── missions/     The Resistance 与它的 Avalon 变体
 │   └── onenight/     One Night Ultimate Werewolf
-├── cmd/              跑得起来的程序：演示、命令行主持台、TCP 服务端、第三方角色
 └── docs/ROADMAP.md   走到这一步的记录（已归档）
 ```
 
@@ -331,7 +334,7 @@ e.OnEvent(func(ev *hiddenrole.Event) {
 ```
 
 把引擎接进一个服务端正是这么做的，见 werewolf 仓库里的
-[`cmd/netserver`](cmd/netserver)。
+[`example/werewolf/netserver`](example/werewolf/netserver)。
 
 ## 单测自己的解析器
 

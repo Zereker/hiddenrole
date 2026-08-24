@@ -421,7 +421,7 @@ CHANGELOG 照记，**记的是变更本身，不是发布**。真到了有第一
 
 | | 为什么 |
 |---|---|
-| 网络层 / 房间 / 匹配 | 宿主的事（[DESIGN.md §1](../DESIGN.md) 第三问）。`cmd/netserver` 是示例，不是产品 |
+| 网络层 / 房间 / 匹配 | 宿主的事（[DESIGN.md §1](../DESIGN.md) 第三问）。`example/werewolf/netserver` 是示例，不是产品 |
 | AI 玩家 | 同上。内核给的是完整的 `PlayerView`，够任何一个 AI 用 |
 | 持久化后端 | `Snapshot` 是纯数据，`json.Marshal` 就是全部接口 |
 | 计时 | 引擎不计时，`Timeout` 是建议值。这是刻意的 |

@@ -35,8 +35,8 @@ This library takes those judgements off your hands and keeps them under test.
 
 **Building a Werewolf product** — you get the rules, the information boundary,
 save/restore, and replay. Wire up your own transport and UI.
-[`cmd/netserver`](../../cmd/netserver) is a working TCP server in under 400
-lines; [`cmd/cli`](../../cmd/cli) is a host console you can play a full game in.
+[`netserver`](netserver) is a working TCP server in under 400
+lines; [`cli`](cli) is a host console you can play a full game in.
 
 **Building an LLM social-deduction benchmark** — you get determinism (same
 inputs, byte-identical snapshots), a per-player view you can hand straight to an
@@ -111,7 +111,7 @@ privileges** — they go through exactly the same doors:
 | Who is on whose side | `WithTeammates(provider)` — asymmetry allowed |
 | Who can hear speech | `WithSpeech(provider)` |
 
-[`cmd/extension`](../../cmd/extension) adds an **Idiot** (flips their card when
+[`extension`](extension) adds an **Idiot** (flips their card when
 voted out, survives, loses the vote thereafter) using only exported API.
 
 ### The kernel knows four state primitives

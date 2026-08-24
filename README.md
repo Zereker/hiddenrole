@@ -59,9 +59,12 @@ the test goes red.
 ├── enginetest/       random games and seven general invariants, for your own rules package
 ├── example/          three rules packages, all peers, all on the public API only
 │   ├── werewolf/     Werewolf, the Chinese ruleset
+│   │   ├── demo/       runnable: every interface demonstrated
+│   │   ├── cli/        runnable: a host console, playable start to finish
+│   │   ├── netserver/  runnable: a TCP server (push, concurrency, reconnect)
+│   │   └── extension/  runnable: a third-party role the engine did not plan for
 │   ├── missions/     The Resistance and its Avalon variant
 │   └── onenight/     One Night Ultimate Werewolf
-├── cmd/              runnable programs: a demo, a CLI host, a TCP server, a third-party role
 └── docs/ROADMAP.md   how this got here (archived)
 ```
 
@@ -371,7 +374,7 @@ e.OnEvent(func(ev *hiddenrole.Event) {
 ```
 
 Wiring the engine into a server is exactly this; see
-[`cmd/netserver`](cmd/netserver)
+[`example/werewolf/netserver`](example/werewolf/netserver)
 in the werewolf repository.
 
 ## Unit-testing your own resolver

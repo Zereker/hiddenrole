@@ -24,9 +24,9 @@
 | `github.com/Zereker/werewolf/onenight` | `github.com/Zereker/hiddenrole/example/onenight` |
 
 内核的 import 路径不变，仍是 `github.com/Zereker/hiddenrole`。`docs/ROADMAP.md`
-与本文件一并搬了过来；原先跑得起来的那四个程序（演示、命令行主持台、TCP
-服务端、第三方角色）移到 `cmd/` 下——`example/` 留给「拿这个内核能写出什么」
-的例子，那四个是**用规则包写出来的程序**，不是同一件事。
+与本文件一并搬了过来；原先跑得起来的那四个程序（`demo`、`cli`、`netserver`、
+`extension`）挪到 `example/werewolf/` 下面——它们四个开的都是狼人杀的局，
+本来就该跟着那套规则包走。
 
 **为什么。** 上一版把内核抽成独立 module 之后，三套规则包留在 `werewolf`
 仓库里，而那个仓库的名字只覆盖其中一套。结构于是同时说两件互相矛盾的话：
@@ -44,10 +44,10 @@
 `example/` 下三套能用的入口，第三方一个不少。
 
 `-coverpkg` 现在是「内核 + `example/` 下三套」，合计 94.7%。`enginetest` 与
-`cmd/` 不算：前者是给规则包用的测试脚手架、自己没有测试也不该有，后者是
+`example/werewolf/` 不算：前者是给规则包用的测试脚手架、自己没有测试也不该有，后者是
 使用者、不是被测对象。Makefile 与 CI 里那句「驱动它的代码在另一个 module、
 跨 module 测不了覆盖率」的注释因此一并改掉，它现在是错的；`make check` 另外
-新增一步 `examples`，把 `cmd/` 下的程序各跑一次。
+新增一步 `examples`，把 `example/werewolf/` 下的程序各跑一次。
 
 ### 规则包的注释语言按规则出身分
 
@@ -432,7 +432,7 @@ fmt.Printf("第%d回合 %s\n", st.Round, st.Phase)
 
 四个方法**各取一次读锁**。宿主要渲染「第 3 回合的白天」得连问两次，中间
 另一个 goroutine 结算掉一个阶段的话，读到的是一组**从来不曾同时成立**的值
-——`cmd/cli` 的提示符就是这么写的（`t.eng.Round(), shortPhase(t.eng.Phase())`），
+——`example/werewolf/cli` 的提示符就是这么写的（`t.eng.Round(), shortPhase(t.eng.Phase())`），
 一直是错的，只是单线程跑起来看不出来。四项在同一个读锁里取出之后这件事没有了。
 
 `Status` 的四项都是标量，不分配内存——「便宜」这条理由（不必像 `View()` 那样
@@ -799,7 +799,7 @@ PoisonOrderIsDeterministic`——**一条路，八个解析器里的一条**。
 
 `SendMessage` 里写着「发布在锁外：回调里可能回调 Engine」,`endPhaseInternal`
 同理。这是把引擎接进服务端的**唯一**办法——收到事件,问一句「这该发给谁」,
-再往那几条连接上写——`cmd/netserver` 的整个推送链路都压在它上面。
+再往那几条连接上写——`example/werewolf/netserver` 的整个推送链路都压在它上面。
 
 而它没有任何测试盯着。谁要是把 `dispatchEvent` 挪回锁内,netserver 会当场
 死锁,整套测试一条都不会红。
@@ -820,7 +820,7 @@ PoisonOrderIsDeterministic`——**一条路，八个解析器里的一条**。
 - `AudienceOf`：即使规则装了一个「什么都给全场」的 `AudienceProvider`
   也必须被拦住（`TestAudienceOf_KernelPrimitivesAreNeverPublic` 盯着）；
 - **`OnEvent`：完全没测。** 宿主拿到什么就转发什么是最自然的写法
-  ——`cmd/netserver` 就是这么推的——状态原语要是混进这一路，等于把
+  ——`example/werewolf/netserver` 就是这么推的——状态原语要是混进这一路，等于把
   上帝视角直接推给所有人。
 
 新增内核测试 `TestBoundary_StatePrimitivesNeverReachPlayers`，用一个最坏
@@ -956,7 +956,7 @@ log[0].Cancel("我说的")       // Cancel 还是导出方法
 `wolfboundary.go` 全部改成显式的 `engine.` 调用。三个 example 同理。
 
 没有任何行为变化：全部是别名的增删与调用点的限定符。验证方式是把两个
-确定性示例（`example`、`cmd/extension`）改前改后的输出逐字节比对，
+确定性示例（`example`、`example/werewolf/extension`）改前改后的输出逐字节比对，
 完全一致；`make check` 与 5000 局随机对局照常通过，覆盖率仍是 94.6%。
 
 ### 修掉 example/cli 的 `-seed` 复现不了一整局
@@ -1328,7 +1328,7 @@ provider。上一版刚修过「狼王在 `PhaseInfo` 里拿不到队友」—�
 开枪现在也要自己产出 `SET_ALIVE`，与内置的狼刀、投票放逐走的是同一条路。
 改的时候它当场没打死人，测试直接红了。
 
-**`cmd/extension` 又撞出一个缺口**：白痴否决的是 `ELIMINATE`，而人是被
+**`example/werewolf/extension` 又撞出一个缺口**：白痴否决的是 `ELIMINATE`，而人是被
 旁边那条 `SET_ALIVE` 打死的——跑起来白痴当场出局。补了 `Effect.SetsAlive()`，
 让扩展能认出致死的原语。改完之后白痴的拦截**与死因无关**了：同一段代码
 挡得住狼刀、毒杀、枪口和任何第三方规则的死法，因为它们最终都走这一条。
@@ -1385,7 +1385,7 @@ if role == RoleWitch {
   清掉），5000 局里 1484 局带着它跑。加这一发子弹时，`newWolfKingGame` 忘了
   注册 setup，狼王当场开不出枪——初始状态是真的参与规则判定，不是视图上
   多显示一行。
-- `cmd/cli` 里主持台不再认识女巫：`if v.Self.Role == RoleWitch` 换成
+- `example/werewolf/cli` 里主持台不再认识女巫：`if v.Self.Role == RoleWitch` 换成
   遍历 `RoleInfo`，认识的键给个中文说法，扩展角色自己定的键原样打出来。
 
 变异验证：去掉入座时的状态发放，6 条新测试里 6 条报错；去掉效果流里的
@@ -1402,7 +1402,7 @@ if role == RoleWitch {
 ### 破坏性变更
 
 - **枚举的 JSON 从编号改成名字。** 此前 `json.Marshal` 出来是 `{"role":2,"phase":21}`，
-  每个客户端都得自己维护一张对照表——`cmd/netserver` 推给客户端的就是这个。
+  每个客户端都得自己维护一张对照表——`example/werewolf/netserver` 推给客户端的就是这个。
   现在是 `{"role":"WEREWOLF","phase":"NIGHT_GUARD"}`。第三方的自定义取值（1000 起）
   没有名字，仍按编号写；读的时候名字与编号都接受，不认识的名字直接报错而不是
   静默变成零值。**快照版本 3 → 4**，不兼容旧存档。
@@ -1437,11 +1437,11 @@ if role == RoleWitch {
   自己的 Resolver 里——而 `Resolver` 接口白纸黑字要求「只能通过返回 Effect 表达
   状态变更」，藏在字段里等于只能违反那条不变量，恢复出来的对局是错的还不报错。
   `PlayerInfo.Vars` 只出现在上帝视角，不进面向玩家的 `SelfInfo`。
-- `cmd/extension`：第三个真实使用者，加了一个**白痴**——被投票放逐时翻牌、
+- `example/werewolf/extension`：第三个真实使用者，加了一个**白痴**——被投票放逐时翻牌、
   不出局、此后失去投票权。它的形状与狼王完全不同（不是「死后触发」而是
   「阻止一次死亡再改变往后的能力」），走的是包装内置解析器、否决效果、
   自定义事件类型这条路。上面那条事件编号的 bug 就是写它时撞出来的。
-- `cmd/netserver`：TCP 长连接的服务端，库的第二个真实使用者。命令行主持台
+- `example/werewolf/netserver`：TCP 长连接的服务端，库的第二个真实使用者。命令行主持台
   碰不到的那半边——事件推送、每条连接一份视图、并发、断线重连、超时真的触发——
   由它来压，七条端到端测试全在 `-race` 下跑。
 
@@ -1491,7 +1491,7 @@ if role == RoleWitch {
 - `PhaseStep.Group`：互斥备选组，猎人的「开枪」与「不开枪」提交任一即算完成。
 - `GameConfig.PhaseTimeout(phase)`：取某个阶段的建议超时。
 - `Event.Canceled` / `Event.Reason`：被规则否决的行动不再与成功的无法区分。
-- `cmd/cli`：一个能真的从头玩完一局的命令行主持台。
+- `example/werewolf/cli`：一个能真的从头玩完一局的命令行主持台。
 - 包文档（`doc.go`）、基准测试、本更新日志。
 
 ### 修复

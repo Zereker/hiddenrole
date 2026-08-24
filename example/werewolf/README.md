@@ -150,7 +150,7 @@ func must(err error) {
 天亮了，当前阶段=DAY，v1 存活=false
 ```
 
-完整示例见 [cmd/demo/main.go](../../cmd/demo/main.go)。
+完整示例见 [demo/main.go](demo/main.go)。
 
 ## 核心概念
 
@@ -460,17 +460,17 @@ g.AddPlayer("wk", roleWolfKing)
 出局时触发的能力由 Resolver 产出 `NewDetourEffect(playerID, phase)`，
 引擎会自动流转到该阶段，并把胜负判定推迟到技能结算之后。
 
-可运行的例子：[example/extension](../../cmd/extension) 加了一个**白痴**（被投票放逐时
+可运行的例子：[example/extension](extension) 加了一个**白痴**（被投票放逐时
 翻牌、不出局、此后失去投票权），演示包装内置解析器、否决一个效果、自定义事件类型
 与存档恢复；[extension_test.go](extension_test.go) 用狼王再走一遍死亡触发那条分支。
 
 ## 命令行主持台
 
-`cmd/cli` 是一个能真的从头玩完一局的主持台，也是这个库的第一个真实使用者——
+`cli` 是一个能真的从头玩完一局的主持台，也是这个库的第一个真实使用者——
 超时、消息路由、存档落盘这些库刻意不管的事，都由它自己解决：
 
 ```console
-$ go run ./cmd/cli
+$ go run ./cli
 狼人杀 · 命令行主持台
 9 人局：3 狼 + 预言家/女巫/守卫/猎人 + 2 民
 
@@ -496,18 +496,18 @@ $ go run ./cmd/cli
 
 `view <玩家>` 出来的内容可以原样发给他，`[私信]` / `[全场]` 的分发依据是
 `AudienceOf`。`run` 让它自己随机跑完一局，`save` / `load` 演示服务重启。
-也可以照脚本跑：`go run ./cmd/cli < cmd/cli/testdata/demo.txt`。
+也可以照脚本跑：`go run ./cli < cli/testdata/demo.txt`。
 
 ## TCP 服务端
 
-`cmd/netserver` 是一个 TCP 长连接的服务端，也是这个库的第二个真实使用者。
+`netserver` 是一个 TCP 长连接的服务端，也是这个库的第二个真实使用者。
 命令行主持台验证的是「一个人主持一局」，有一整类东西它碰不到——事件推送、
 每条连接一份视图、多局并发、断线重连、超时真的触发——都由它来压。
 
 协议是 TCP + 一行一条 JSON，`nc` 就能玩：
 
 ```console
-$ go run ./cmd/netserver &
+$ go run ./netserver &
 $ nc localhost 9000
 {"type":"join","player":"p1"}
 <- {"type":"phase","phase":"NIGHT_GUARD","round":1,"deadline_ms":...}
@@ -691,7 +691,7 @@ example/werewolf/            # 规则包：狼人杀这一套怎么玩（本包�
 ../onenight/                 # 第三套规则包：单夜换牌制（两层身份）
   └── SCARS.md               # 同上
 ../../                       # 内核本身：types.go、engine.go、phase.go……
-../../cmd/                   # 跑得起来的程序
+（本目录下）              # 跑得起来的程序
     ├── demo/                # 各接口的用法演示
     ├── cli/                 # 命令行主持台（真实使用者）
     ├── netserver/           # TCP 服务端（推送、并发、断线重连）
@@ -770,7 +770,7 @@ example/werewolf/            # 规则包：狼人杀这一套怎么玩（本包�
 go test ./...           # 全部测试
 go test -race ./...     # 并发检查
 golangci-lint run       # 静态检查（覆盖测试代码）
-go run ./cmd/demo        # 示例必须能跑通，不是只能编译
+go run ./demo        # 示例必须能跑通，不是只能编译
 ```
 
 ## 更新日志与发版

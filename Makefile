@@ -44,12 +44,12 @@ fmt-check:
 	@out=$$(gofmt -l .); \
 	if [ -n "$$out" ]; then echo "not gofmt'd:"; echo "$$out"; exit 1; fi
 
-# Run every program under cmd/ once, only to confirm the public API still
-# holds them up: they are the first real users of it.
+# Run each program under example/werewolf/ once, only to confirm the public API
+# still holds them up: they are its first real users.
 examples:
-	go run ./cmd/demo > /dev/null
-	printf 'run\nquit\n' | go run ./cmd/cli > /dev/null
-	go run ./cmd/extension > /dev/null
+	go run ./example/werewolf/demo > /dev/null
+	printf 'run\nquit\n' | go run ./example/werewolf/cli > /dev/null
+	go run ./example/werewolf/extension > /dev/null
 
 check: build vet fmt-check lint test race examples
 
