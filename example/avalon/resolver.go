@@ -1,0 +1,233 @@
+package avalon
+
+import (
+	"strconv"
+
+	"github.com/Zereker/hiddenrole"
+)
+
+// resolver.go 四个阶段各自的结算。
+
+// proposeResolver 队长提名任务队伍。
+//
+// 一支队伍要几个人就提交几次 PROPOSE——SkillUse.TargetID 是单个字符串，
+// 表达不了「一次提名一支队伍」。只取队长本人的提交，按提交顺序去重，
+// 多于所需人数的部分丢掉。
+type proposeResolver struct{}
+
+func (proposeResolver) Resolve(uses []*hiddenrole.SkillUse, view hiddenrole.GameView) []*hiddenrole.Effect {
+	leader := leaderID(view)
+	need := MissionSize(len(view.AllPlayers()), mission(view))
+
+	// 一次提交带整支队伍。
+	//
+	// SkillUse 此前只能带一个目标，队长得提交 N 次——就绪判定因此说不清
+	// 「还差几个人没提」，提名了 1 人（需要 2 人）之后就报 Ready=true。
+	// 现在一次提交就是一支完整的队伍，就绪判定跟着说对话。
+	//
+	// 不检查提交者是不是队长：内核已经在 SubmitSkillUse 就拦下了非队长的
+	// 提交（这个阶段的行动者由 SetActors 指定）。
+	seen := map[string]bool{}
+	var team []string
+	for _, u := range uses {
+		if u.Skill != SkillPropose {
+			continue
+		}
+		for _, id := range u.Targets {
+			if id == "" || seen[id] || len(team) >= need {
+				continue
+			}
+			if _, ok := view.Player(id); !ok {
+				continue
+			}
+			seen[id] = true
+			team = append(team, id)
+		}
+	}
+
+	// 上一次提名留下的标记不用在这里清：提名阶段声明了 ClearsRoundVars，
+	// 内核在它结算完时清。此前内核只有「回合级」一档寿命，而这里要的是
+	// 「一次提名」，只好手工清一遍——那段代码现在删掉了。
+	var effects []*hiddenrole.Effect
+	for _, id := range team {
+		effects = append(effects,
+			hiddenrole.NewEffect(EventProposed, leader, id),
+			hiddenrole.NewSetVarEffect(hiddenrole.ScopeRound.Of(id), varOnTeam, hiddenrole.VarPresent))
+	}
+	// 点名任务阶段的行动者：只有这几个人能投成败。
+	//
+	// 名单在这里算出来、到下一个阶段才用——这正是 SetActors 要指定阶段
+	// 而不是只作用于当前阶段的原因。
+	return append(effects, hiddenrole.NewSetActorsEffect(PhaseMission, team...))
+}
+
+// teamVoteResolver 全员表决这支队伍。
+//
+// 票是公开的：条目里表决牌同时揭晓，谁投了什么全场都看得到。因此每一票
+// 都产出一条公开事件——这与任务阶段正好相反，那里连谁投了失败都不能露。
+type teamVoteResolver struct{}
+
+func (teamVoteResolver) Resolve(uses []*hiddenrole.SkillUse, view hiddenrole.GameView) []*hiddenrole.Effect {
+	need := MissionSize(len(view.AllPlayers()), mission(view))
+	team := teamIDs(view)
+
+	voted := map[string]bool{}
+	approve, reject := 0, 0
+	var effects []*hiddenrole.Effect
+	for _, u := range uses {
+		if u.Skill != SkillApprove && u.Skill != SkillReject {
+			continue
+		}
+		if voted[u.PlayerID] {
+			continue // 一人一票，以第一次为准
+		}
+		voted[u.PlayerID] = true
+		if u.Skill == SkillApprove {
+			approve++
+		} else {
+			reject++
+		}
+		effects = append(effects,
+			hiddenrole.NewEffect(EventVote, u.PlayerID, "").WithData("approve", strconv.FormatBool(u.Skill == SkillApprove)))
+	}
+
+	// 队伍人数不对（队长没提够、或者根本没提）一律按否决处理
+	ok := len(team) == need && need > 0 && approve > reject
+
+	// 队长每一轮都往下传一位，无论通过与否
+	next := gameNum(view, varLeader) + 1
+	effects = append(effects,
+		setGameNum(view, varLeader, next),
+		hiddenrole.NewEffect(EventLeaderChanged, "", ""),
+		hiddenrole.NewSetActorsEffect(PhasePropose, leaderAt(view, next)))
+
+	if ok {
+		return append(effects,
+			hiddenrole.NewEffect(EventTeamApproved, "", "").WithData("team", strconv.Itoa(len(team))),
+			hiddenrole.NewSetVarEffect(hiddenrole.ScopeRound, varApproved, hiddenrole.VarPresent),
+			setGameNum(view, varRejects, 0),
+			hiddenrole.NewGotoPhaseEffect(PhaseMission))
+	}
+
+	n := rejects(view) + 1
+	effects = append(effects,
+		hiddenrole.NewEffect(EventTeamRejected, "", "").WithData("consecutive", strconv.Itoa(n)),
+		setGameNum(view, varRejects, n))
+	if n >= HammerRejections {
+		// 连续五次否决，坏人直接获胜。胜负由 VictoryChecker 读这个数判定。
+		effects = append(effects, hiddenrole.NewEffect(EventHammerReached, "", ""))
+	}
+	// 被否决就直接回提名，不再空转一次任务阶段。
+	//
+	// 这是内核把「下一步去哪」交给规则之后立刻兑现的：条件分支的结果由
+	// 本阶段的结算算出来，静态的 NextPhase 表达不了。顺带把回合数也修对了
+	// ——任务阶段声明了 EndsRound，空转一次就多推一个回合。
+	return append(effects, hiddenrole.NewGotoPhaseEffect(PhasePropose))
+}
+
+// missionResolver 任务结算。
+//
+// 这里有两处阿瓦隆特有的信息约束：
+//
+//   - **只有队员能投**。内核判定行动者只看角色，队伍却是运行时定的，
+//     因此这一步只能由解析器自己把非队员的提交丢掉。代价见 SCARS.md 第 1 条。
+//   - **失败票不能记名**。全场只能知道「有几张失败票」，不能知道是谁投的。
+//     实现上就是**不为每一票产出事件**，只产出一条带票数的聚合事件。
+//     好人误投失败按成功计，且那条否决只有他自己看得到。
+type missionResolver struct{}
+
+func (missionResolver) Resolve(uses []*hiddenrole.SkillUse, view hiddenrole.GameView) []*hiddenrole.Effect {
+	if !approved(view) {
+		return nil // 上一轮表决没通过，这个阶段空转
+	}
+
+	// 不再检查「他在不在队伍里」：内核已经拦下了非队员的提交。
+	acted := map[string]bool{}
+	fails := 0
+	var effects []*hiddenrole.Effect
+	for _, u := range uses {
+		if u.Skill != SkillMissionSuccess && u.Skill != SkillMissionFail {
+			continue
+		}
+		if acted[u.PlayerID] {
+			continue // 一人一票，以第一次为准
+		}
+		acted[u.PlayerID] = true
+		if u.Skill != SkillMissionFail {
+			continue
+		}
+		p, _ := view.Player(u.PlayerID)
+		if !isEvil(p.Role) {
+			// 好人不能投失败。这条否决只发给他本人——旁人连「有人试过」
+			// 都不该知道，否则等于点名。
+			effects = append(effects, cancel(
+				hiddenrole.NewEffect(EventFailRejected, u.PlayerID, ""), "好人只能投成功"))
+			continue
+		}
+		fails++
+	}
+
+	players := len(view.AllPlayers())
+	m := mission(view)
+	failed := fails >= FailsNeeded(players, m)
+
+	if failed {
+		effects = append(effects,
+			hiddenrole.NewEffect(EventMissionFailed, "", "").
+				WithData("mission", strconv.Itoa(m)).WithData("fails", strconv.Itoa(fails)),
+			setGameNum(view, varFail, failures(view)+1))
+	} else {
+		effects = append(effects,
+			hiddenrole.NewEffect(EventMissionSucceeded, "", "").WithData("mission", strconv.Itoa(m)),
+			setGameNum(view, varSuccess, successes(view)+1))
+	}
+	effects = append(effects, setGameNum(view, varMission, m+1))
+
+	// 好人凑满三次成功：把刺杀排进队列。
+	//
+	// 用的是内核那套「谁、去哪个阶段」的触发队列——它原本是为出局技能
+	// 做的，语义却正好是这里要的，还顺带把胜负判定推迟到刺杀结算之后。
+	if !failed && successes(view)+1 >= 3 {
+		if ids := idsWithRole(view, RoleAssassin); len(ids) > 0 {
+			effects = append(effects, hiddenrole.NewDetourEffect(ids[0], PhaseAssassin))
+		}
+	}
+	return effects
+}
+
+// assassinResolver 刺客指认梅林。
+type assassinResolver struct{}
+
+func (assassinResolver) Resolve(uses []*hiddenrole.SkillUse, view hiddenrole.GameView) []*hiddenrole.Effect {
+	for _, u := range uses {
+		if u.Skill != SkillAssassinate || u.Target() == "" {
+			continue
+		}
+		p, ok := view.Player(u.Target())
+		if !ok {
+			continue
+		}
+		hit := p.Role == RoleMerlin
+		return []*hiddenrole.Effect{
+			hiddenrole.NewEffect(EventAssassinated, u.PlayerID, u.Target()).WithData("hit", strconv.FormatBool(hit)),
+			hiddenrole.NewSetVarEffect(hiddenrole.ScopeGame, varAssassinated, boolVar(hit)),
+		}
+	}
+	// 没有指认视为刺杀落空
+	return []*hiddenrole.Effect{
+		hiddenrole.NewEffect(EventAssassinated, "", "").WithData("hit", strconv.FormatBool(false)),
+		hiddenrole.NewSetVarEffect(hiddenrole.ScopeGame, varAssassinated, "miss"),
+	}
+}
+
+func boolVar(b bool) string {
+	if b {
+		return "hit"
+	}
+	return "miss"
+}
+
+func cancel(e *hiddenrole.Effect, reason string) *hiddenrole.Effect {
+	e.Cancel(reason)
+	return e
+}
