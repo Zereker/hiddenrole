@@ -17,6 +17,22 @@ go get github.com/Zereker/hiddenrole
 
 角色、技能、死法、胜负、信息边界，全部由规则包经公开选项装上来。
 
+## 它做什么，你还得自己写什么
+
+| 内核给你 | 你还得自己写 |
+|---|---|
+| 阶段机，以及每个阶段结束时的结算 | 阶段**什么时候**结束——它没有时钟，`Timeout` 只是建议 |
+| 状态只有一个写入点，随之而来的快照、效果流回放与审计 | 这些东西存在哪儿 |
+| 分玩家的视图与事件路由，带一条规则也降不了的底线 | 传输层：连接、房间、匹配、断线重连 |
+| 「谁还没行动」，且区分必须行动与可以行动 | 提示怎么写，超时了怎么办 |
+| 随机对局与七条不变量，可以直接对着你自己的规则包跑 | **规则本身**：角色、技能、死法、胜负、谁有权知道什么 |
+
+**它不是一局游戏，也不是一台服务器。** 没有界面、没有房间、没有时钟、没有
+套接字，以后也不会有——那些是每个后端都想按自己的方式写的部分。剩下的才是
+难写对、且光靠玩测不出来的部分。
+
+给谁用、不给谁用、跟谁比，见 [POSITIONING.md](POSITIONING.md)（英文）。
+
 ## 「它真的不知道」这件事可以查
 
 本包的非测试源码里，`RoleType` 的取值一共两个（`RoleUnspecified`、
@@ -31,15 +47,19 @@ go get github.com/Zereker/hiddenrole
 | [missions](example/missions) | 任务制（提名 / 表决 / 任务 / 刺杀） | **一个人都不出局**也能跑；阶段流转由结算结果决定 |
 | [onenight](example/onenight) | 单夜换牌制 | 身份**分两层**：发到手的那张定夜里做什么，手上那张定结算算哪边 |
 
-第三套写下来只逼出**零个破坏性 API 变更**——[API 已冻结](API.md)，
-由 `TestAPI_SurfaceIsPinned` 与 [`testdata/api.golden`](testdata/api.golden)
-守着：名字或签名变了，测试就红。
+第三套写下来只逼出**零个破坏性 API 变更**。导出面由
+`TestAPI_SurfaceIsPinned` 与 [`testdata/api.golden`](testdata/api.golden)
+钉着：名字或签名变了测试就红，所以任何改动都不会悄悄发生。那是一个**变更
+探测器，不是冻结**——API 承诺什么、不承诺什么，见
+[STABILITY.md](STABILITY.md)。
 
 ## 从哪儿开始读
 
 | 想知道 | 看哪份 |
 |---|---|
-| **有哪些 API、各承诺什么** | [API.md](API.md) 🔒 已冻结 |
+| **这东西是干什么的、适不适合你** | [POSITIONING.md](POSITIONING.md) |
+| **有哪些 API、各承诺什么** | [API.md](API.md) |
+| 什么会变、什么不变、v2 排着哪些 | [STABILITY.md](STABILITY.md) |
 | **该长成什么样、为什么这么抽象** | [DESIGN.md](DESIGN.md) |
 | 现在的代码怎么组织的 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 别人怎么做的，我们哪里强、哪里欠 | [PRIOR-ART.md](PRIOR-ART.md) |
@@ -412,3 +432,7 @@ go doc github.com/Zereker/hiddenrole
 ## 许可证
 
 MIT License. 详见 [LICENSE](LICENSE)。
+
+[`example/`](example) 下的三套规则包实现的是别人出版的游戏的**玩法**。包名取
+玩法结构（`missions`、`onenight`），不取任何人的商标；规则出处在各自的包里
+写明，未复制原文。**本项目与上述游戏的出版方无关，也未获其背书。**

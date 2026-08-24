@@ -127,8 +127,8 @@
 // handler: events and messages are published outside the lock, so calling
 // AudienceOf, PlayerView or Snapshot from a handler is the supported usage.
 // Wiring the engine into a server is exactly that — receive an event, ask
-// "who should get this", write to those connections; see example/netserver
-// in the werewolf repository. TestCallbacks_MayCallBackIntoTheEngine watches
+// "who should get this", write to those connections; see
+// example/werewolf/netserver. TestCallbacks_MayCallBackIntoTheEngine watches
 // this property and carries a timeout: if dispatch is ever moved inside the
 // lock that test goes red instead of hanging the whole suite.
 //

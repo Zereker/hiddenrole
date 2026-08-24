@@ -138,13 +138,12 @@ public options a third party would use. 92.8% coverage across the three rule pac
 rules packs, every rule traced to the
 Wikipedia article, 5000 randomized games per test run.
 
-**v1.5.0 is the API freeze point.** It carries a large set of breaking changes
-(listed in the changelog); from here on the public API is a commitment.
-
-**The import path will not change.** Go requires a `/vN` suffix on modules at
-major version 2 and above, which would change every user's import path. Paying
-the breakage once and staying on the v1 line is the better trade for a library
-with no known importers yet.
+**Breaking changes go to `/v2` from here on.** v1.5.0 was treated as a freeze
+point and v1.6.0 then removed thirteen exported names from the kernel on the
+v1 line, which is not something Go's import compatibility rule allows. The
+policy now is that v1 only gains names, and breaking changes batch into the
+next major; the reasoning and the queue are in
+[STABILITY.md](../../STABILITY.md).
 
 The two layers are two packages:
 

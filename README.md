@@ -20,6 +20,24 @@ allowed to know what**.
 Roles, skills, ways to die, victory, the information boundary: all of it is
 installed by a rules package through public options.
 
+## What it does, and what you still write
+
+| The kernel gives you | You still write |
+|---|---|
+| a phase machine, and resolution at the end of each phase | **when** a phase ends -- there is no clock; `Timeout` is advice |
+| one write point for state, and with it snapshots, effect-log replay and auditing | where any of it is stored |
+| per-player views and event routing, with a floor the rules cannot lower | the transport: sockets, rooms, matchmaking, reconnection |
+| "who has yet to act", with must-act separated from may-act | the prompts, and what a timeout does |
+| random games and seven invariants to point at your own ruleset | **the rules**: roles, skills, ways to die, victory, who may know what |
+
+**It is not a game and not a server.** There is no UI, no lobby, no clock and
+no socket, and there is not going to be -- those are the parts every backend
+wants written its own way. What is left is the part that is hard to get right
+and impossible to test by playing.
+
+For who this is for, who it is not for, and what it is measured against, see
+[POSITIONING.md](POSITIONING.md).
+
 ## "It really does not know" is checkable
 
 In this package's non-test source there are exactly two values of `RoleType`
@@ -36,16 +54,20 @@ two of which share a single value:
 | [missions](example/missions) | mission-based play (nominate / vote / mission / assassinate) | it runs with **nobody ever eliminated**; transitions are decided by resolution results |
 | [onenight](example/onenight) | one-night card swapping | identity has **two layers**: the card dealt decides what you do at night, the card in hand decides which side you score for |
 
-Writing the third one forced **zero breaking API changes** -- [the API is
-frozen](API.md), guarded by `TestAPI_SurfaceIsPinned` and
-[`testdata/api.golden`](testdata/api.golden): change a name or a signature and
-the test goes red.
+Writing the third one forced **zero breaking API changes**. The exported
+surface is pinned by `TestAPI_SurfaceIsPinned` and
+[`testdata/api.golden`](testdata/api.golden) -- change a name or a signature
+and the test goes red, so no change happens quietly. That is a change
+detector, **not a freeze**: what the API does and does not promise is in
+[STABILITY.md](STABILITY.md).
 
 ## Where to start reading
 
 | To find out | Read |
 |---|---|
-| **which APIs exist and what each promises** | [API.md](API.md) 🔒 frozen |
+| **what this is for, and whether it is for you** | [POSITIONING.md](POSITIONING.md) |
+| **which APIs exist and what each promises** | [API.md](API.md) |
+| what changes, what does not, and what is queued for v2 | [STABILITY.md](STABILITY.md) |
 | **what it should look like, and why so abstract** | [DESIGN.md](DESIGN.md) |
 | how the code is organised today | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | how others did it, where we are ahead and where we are behind | [PRIOR-ART.md](PRIOR-ART.md) |
@@ -374,8 +396,7 @@ e.OnEvent(func(ev *hiddenrole.Event) {
 ```
 
 Wiring the engine into a server is exactly this; see
-[`example/werewolf/netserver`](example/werewolf/netserver)
-in the werewolf repository.
+[`example/werewolf/netserver`](example/werewolf/netserver).
 
 ## Unit-testing your own resolver
 
@@ -459,3 +480,9 @@ packages outside this one, with no access to anything you lack.
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+The three rules packages under [`example/`](example) implement the **play** of
+games published by other people. Packages are named after the structure of
+play (`missions`, `onenight`), not after anybody's trademark, and each cites
+the public source its rules come from. **This project is not affiliated with,
+or endorsed by, the publishers of those games.**

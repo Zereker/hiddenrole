@@ -1,32 +1,41 @@
 # The kernel's API
 
-> ## 🔒 Frozen
+> ## The contract
 >
-> **What is frozen is this document plus
-> [`testdata/api.golden`](testdata/api.golden).** The latter is the
-> machine-readable baseline, guarded by `TestAPI_SurfaceIsPinned`: change a
-> name or a signature and the test goes red.
+> **This document plus [`testdata/api.golden`](testdata/api.golden) are the
+> exported surface.** The latter is the machine-readable baseline, guarded by
+> `TestAPI_SurfaceIsPinned`: change a name or a signature and the test goes
+> red.
 >
-> **Frozen does not mean "never changes"**, it means three disciplines:
+> **This is a change detector, not a freeze.** This document once declared the
+> API frozen, and breaking changes shipped inside `v1` afterwards -- which
+> Go's import compatibility rule does not allow. The policy that replaced the
+> declaration is in [STABILITY.md](STABILITY.md), and it comes down to: **v1
+> takes no more breaking changes; the next batch ships as `/v2`.**
+>
+> What survives from the freeze, unchanged, are the three disciplines that
+> were always its useful half:
 >
 > 1. **A breaking change needs a specific reason somebody ran into** -- some
 >    rules package could not be written because of it, or the way around it
 >    would tell a lie. "I think this is nicer" does not count.
-> 2. **Adding is harder than removing.** What is added cannot be taken back;
->    before removing, you have to answer "who uses this".
+> 2. **Adding is harder than removing.** What is added cannot be taken back
+>    before the next major; before removing, you have to answer "who uses
+>    this".
 > 3. **A change cannot happen quietly.** Changing the exported surface means
 >    updating the golden baseline and this document at the same time, and that
 >    step is explicit.
 >
-> The state at the freeze: **three independent rules packages** (werewolf,
+> Where the surface stands: **three independent rules packages** (werewolf,
 > mission-based, one-night card swapping), a kernel of 55 types / 24
 > package-level functions / 56 methods / 20 interface methods / 62 constants
-> and variables, and **not one exported name without a user**.
+> and variables, and **not one exported name without a user** -- though every
+> user is inside this repository (see [POSITIONING.md](POSITIONING.md)).
 >
-> What would reopen it: see [§15](#15-what-would-reopen-the-freeze).
+> What is queued for the next major: [§15](#15-what-is-queued-for-v2).
 
-> **This document is the thing that is frozen.** It lists **every** exported
-> name in `github.com/Zereker/hiddenrole` and says what each one promises.
+> This document lists **every** exported name in
+> `github.com/Zereker/hiddenrole` and says what each one promises.
 >
 > The design intent is in [DESIGN.md](DESIGN.md) and the implementation order
 > in [ROADMAP.md](docs/ROADMAP.md).
@@ -35,8 +44,8 @@
 >
 > Current size: **55 types, 24 package-level functions, 56 methods, 62
 > constants and variables**, plus 6 names in the public sub-package
-> `enginetest` (see Appendix B). Appendix A is the complete listing, used for
-> comparison after the freeze.
+> `enginetest` (see Appendix B). Appendix A is the complete listing, used as
+> the comparison baseline.
 
 ---
 
@@ -690,13 +699,21 @@ never landed" shows up in a unit test.
 7. **`Effect` is the only write path** (`Engine.Apply` is the same write
    point, not a second one)
 
-### What will change ([ROADMAP.md phase 2](docs/ROADMAP.md))
+Each of the seven is a promise about **shape**, not about the version
+number: they are the things this design would stop being itself without. The
+version-number promise -- what may change in a `v1` release and what has to
+wait for `/v2` -- is in [STABILITY.md](STABILITY.md).
 
-| How it changes | Who it affects |
-|---|---|
-| `PlayerInfo.Alive` / `.Role` go from stored fields to **derived fields** | reading is unchanged; writing moves from `SET_ALIVE` into `SET_VAR` |
-| `SnapshotVersion` is bumped and the snapshot format changes | old saves become unreadable (currently zero users) |
-| ~~the detour queue's naming~~ | **done** (§14, item 3) |
+### What will change
+
+The queue, with the trigger for each entry, is
+[STABILITY.md §3](STABILITY.md). In short: a multi-camp `VictoryChecker`,
+`SubmitSkillUse` no longer aliasing the caller's struct, and eventually
+aliveness demoted to a canonical key. All of them break callers, so all of
+them wait for `/v2` and ship together.
+
+`SnapshotVersion` moves independently of the module version, and a bump
+invalidates saved games -- see [STABILITY.md §4](STABILITY.md).
 
 ### What is not promised
 
@@ -705,13 +722,16 @@ never landed" shows up in a unit test.
 - **The specific keys in `Effect.Data`.** They are the kernel's internal
   convention; read effects with methods like `SetsAlive()` / `SetsVar()`
   rather than digging into `Data`.
+- **Log output and error message wording.** Branch on `ErrorCode` or the
+  `Err*` sentinels, never on a message string.
 
 ---
 
-## 14. Clearing the books before the freeze (**seven items, all handled**)
+## 14. Clearing the books before v1.5 (**seven items, all handled**)
 
 Seven inconsistencies found by going through the API line by line while
-writing this document. All cleared.
+writing this document. All cleared. (This audit is what the freeze
+declaration rested on; the declaration is gone, the seven fixes stand.)
 
 | # | Problem | What was done |
 |---|---|---|
@@ -744,8 +764,8 @@ $ go test .
     added:   [func SneakyExport]
     removed: []
 
-    This is not an error, it is a reminder: the exported surface is what
-    API.md declares frozen.
+    This is not an error, it is a reminder: the exported surface is the
+    contract API.md records, and v1 takes no breaking changes (STABILITY.md).
     Confirm the change is intended, then do two things together --
       1. go test . -run TestAPI_SurfaceIsPinned -update-api-golden
       2. update API.md (the body and Appendix A)
@@ -759,30 +779,33 @@ nothing about the test itself.
 
 ---
 
-## 15. What would reopen the freeze
+## 15. What is queued for v2
 
-A freeze has to be overturnable, or it is only a slogan. Any one of the four
-below reopens the corresponding part:
+Nothing here moves on its own, and nothing here moves inside `v1`: every
+entry breaks callers, so it waits for the next major and ships with the rest
+of the batch (the full queue, including the two entries that came out of an
+API review rather than out of a ruleset, is
+[STABILITY.md §3](STABILITY.md)).
 
-| Trigger | What reopens | Where it stands |
+| Trigger | What changes | Where it stands |
 |---|---|---|
 | **a second rules package runs into "victory has exactly one winner"** | `VictoryChecker`'s signature becomes `winners []Camp` | one-night card swapping has run into it once (the tanner winning alongside the villagers). Blood on the Clocktower's travellers scoring separately is most likely the second |
 | **the "a target must be a player" encoding starts lying, or combinatorially explodes** | `PhaseStep` gains a `TargetKind` | one-night card swapping ran into it, but the way around it is ugly without being false, at a cost of 15 lines |
 | **some ruleset cannot be written because "aliveness is one bit"** | `Alive` is demoted to a canonical key | not yet. Blood on the Clocktower's poisoned/drunk are the candidates |
 | **a fourth and fifth rules package still cannot use `RoleSystem`** | it moves into the werewolf package | one of the three uses it |
 
-### The first criterion has not been tested by itself yet
+### The criterion that has not been tested by itself yet
 
-The freeze's first criterion is "**the next rules package no longer forces a
-breaking API change**". That criterion was only phrased this way after the
-third rules package was written -- **the third was written under the old
-criterion** -- so strictly speaking the new one has not yet been tested
-against a real rules package.
+The criterion this queue rests on is "**the next rules package no longer
+forces a breaking API change**". It was only phrased this way after the third
+rules package was written -- **the third was written under the older
+criterion** -- so strictly speaking it has not yet been tested against a real
+ruleset.
 
-Writing this down is not a discount on the freeze, it is being clear about its
-reach: **the fourth rules package is this criterion's first real exam**. If it
-forces a breaking change, the freeze came too early; if it forces only changes
-with zero exported names (as the third did), the freeze holds.
+Writing this down is being clear about the reach of the claim: **the fourth
+rules package is this criterion's first real exam**. If it forces a breaking
+change, the surface converged too early; if it forces only changes with zero
+exported names (as the third did), it held.
 
 ---
 
@@ -837,13 +860,13 @@ back in under `example/`, so `internal/` would work again -- but it stays public
 on purpose: a harness only this repository can use is not evidence that a
 third party can test their own rules package the same way. Being public, it is
 pinned by `TestAPI_SurfaceIsPinned` along with everything else, or it would be
-a back door around the freeze.
+a back door around that discipline.
 
 ---
 
 ## Appendix A: the complete listing of exported names
 
-**The freeze baseline.** Guarded by `TestAPI_SurfaceIsPinned` and
+**The comparison baseline.** Guarded by `TestAPI_SurfaceIsPinned` and
 `testdata/api.golden` -- change a **name or a signature** and the test goes
 red.
 

@@ -1,14 +1,20 @@
 # Before you change this kernel
 
-## The API is frozen
+## v1 takes no breaking changes
 
 The exported surface is pinned jointly by [`API.md`](API.md) and
 [`testdata/api.golden`](testdata/api.golden), guarded by
 `TestAPI_SurfaceIsPinned`: **change a name or a signature and the test goes
 red**. The public sub-package `enginetest` is in there too.
 
-Changing the exported surface means doing three things together; any one of
-them missing does not count:
+The module is published at `github.com/Zereker/hiddenrole`, and while that is
+the import path a release may **add** exported names and **fix** behaviour
+that contradicts documented intent -- nothing else. Removals, renames and
+signature changes wait for `/v2` and ship together; the queue and the trigger
+for each entry are in [`STABILITY.md`](STABILITY.md).
+
+Adding to the surface means doing three things together; any one of them
+missing does not count:
 
 1. Have a **specific reason you actually ran into** -- some rules package
    could not be written because of it, or the way around it would tell a lie.
@@ -17,8 +23,8 @@ them missing does not count:
    `go test . -run TestAPI_SurfaceIsPinned -update-api-golden`
 3. Update `API.md` (the body and Appendix A)
 
-[`API.md` §15](API.md) lists the four conditions under which reopening the
-freeze is worth it.
+A name on its way out gets a `// Deprecated:` comment in a v1 release before
+the v2 that removes it.
 
 ## A rule cannot live only in a comment
 

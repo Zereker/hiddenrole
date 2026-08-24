@@ -23,14 +23,14 @@
 // test harness for users of the library, not the thing under test.**
 //
 // It used to be called `internal/gamefuzz`, on the grounds that "a test-only
-// thing should not add a name to an API that was just frozen". That position
-// stopped working once **the engine became its own module** -- Go's rule is
-// that `internal/` can only be imported from within the same module, and the
-// rules packages now live in another one and could not use a line of it.
+// thing should not add a name to an API that was just declared final". That
+// position stopped working once **the engine became its own module** -- Go's
+// rule is that `internal/` can only be imported from within the same module,
+// and the rules packages now live in another one and could not use a line of
+// it.
 //
-// Being public, it is guarded by the freeze: TestAPI_SurfaceIsPinned pins
-// this sub-package too, or it would become a back door around that
-// discipline.
+// Being public, it is pinned by TestAPI_SurfaceIsPinned along with the
+// kernel, or it would become a back door around that discipline.
 //
 // For contrast: hiddenrole.Board / Seat / Mark are public test APIs too, and
 // they do the other half of the same job -- those three lay out one board by

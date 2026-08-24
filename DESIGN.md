@@ -4,10 +4,9 @@
 > like to carry the whole class of social deduction games, and not just
 > werewolf?**
 >
-> **The API is frozen** -- the contract clause by clause and the freeze
-> declaration are in [API.md](API.md), and the order in which we got here is
-> in [ROADMAP.md](docs/ROADMAP.md)
-> (archived). The structure of the code as it stands is in
+> The contract clause by clause is in [API.md](API.md), what may change and
+> when is in [STABILITY.md](STABILITY.md), and the order in which we got here
+> is in [ROADMAP.md](docs/ROADMAP.md) (archived). The structure of the code as it stands is in
 > [ARCHITECTURE.md](ARCHITECTURE.md), and the comparison with other engines is
 > in [PRIOR-ART.md](PRIOR-ART.md).
 
@@ -507,7 +506,7 @@ from "a variable table plus two privileged fields" into "a variable table".
 
 | Gap | What it might block |
 |---|---|
-| victory has a single `Camp` | **One Night has run into it** (the tanner can win alongside the villagers, a routine outcome of the base game). Judged as **wait for a second collision** -- it is the only breaking signature change, and one ruleset is not enough to move an interface that was just frozen |
+| victory has a single `Camp` | **One Night has run into it** (the tanner can win alongside the villagers, a routine outcome of the base game). Judged as **wait for a second collision** -- it is a breaking signature change, so it waits for `/v2` either way ([STABILITY.md §3](STABILITY.md)) |
 | `SkillUse.Targets` can only hold player IDs | **One Night has run into it** (looking at a centre card). Judged as **not fixing it for now**: the way around it (encoding the index into the skill name) is ugly and tells no lie, at a cost of 15 lines |
 | one `Resolver` per phase, composition by hand-wrapping | games whose phase resolution is heavily reused |
 | the kernel has no randomness | games that draw or roll during play (**it was added once, and removed for having no users**) |

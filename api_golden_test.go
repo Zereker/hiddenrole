@@ -17,7 +17,7 @@ var updateAPIGolden = flag.Bool("update-api-golden", false, "rewrite testdata/ap
 // TestAPI_SurfaceIsPinned ties the kernel's exported surface to Appendix A of
 // API.md.
 //
-// API.md declares itself frozen. Before this test **nothing pinned it** --
+// API.md records the contract. Before this test **nothing pinned it** --
 // add an exported name, remove one, change its case, and the document would
 // not react, until the two slowly stopped agreeing. That is the same wound as
 // every other "rule that lives only in a comment" in this project: a rule
@@ -32,7 +32,7 @@ var updateAPIGolden = flag.Bool("update-api-golden", false, "rewrite testdata/ap
 // through -- not one exported name added or removed, and every implementer
 // fails to compile.
 //
-//	go test ./engine -run TestAPI_SurfaceIsPinned -update-api-golden
+//	go test . -run TestAPI_SurfaceIsPinned -update-api-golden
 func TestAPI_SurfaceIsPinned(t *testing.T) {
 	got := strings.Join(exportedNames(t), "\n") + "\n"
 
@@ -60,10 +60,11 @@ func TestAPI_SurfaceIsPinned(t *testing.T) {
 
 	added, removed := diffLines(string(want), got)
 	t.Errorf("the kernel's exported surface changed.\nadded:   %v\nremoved: %v\n\n"+
-		"This is not an error, it is a reminder: the exported surface is what "+
-		"API.md declares frozen.\n"+
+		"This is not an error, it is a reminder: the exported surface is the "+
+		"contract API.md records, and v1 takes no breaking changes "+
+		"(STABILITY.md).\n"+
 		"Confirm the change is intended, then do two things together --\n"+
-		"  1. go test ./engine -run %s -update-api-golden\n"+
+		"  1. go test . -run %s -update-api-golden\n"+
 		"  2. update API.md (the body and Appendix A)",
 		added, removed, t.Name())
 }
@@ -87,8 +88,8 @@ func exportedNames(t *testing.T) []string {
 	// games (the same position as net/http/httptest). It used to be called
 	// internal/gamefuzz -- `internal/` cannot be imported from outside the
 	// module, and the engine had to become its own library, so it had to go
-	// public. Being public, it is guarded by the freeze: otherwise it would
-	// become a back door around that discipline.
+	// public. Being public, it is pinned here like everything else: otherwise
+	// it would become a back door around that discipline.
 	for _, dir := range []string{".", "enginetest"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
