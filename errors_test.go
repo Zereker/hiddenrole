@@ -156,3 +156,39 @@ func TestWrapError_MatchesSentinel(t *testing.T) {
 		t.Errorf("a version mismatch should match ErrInvalidSnapshot, got %v", err)
 	}
 }
+
+// TestStart_BoardAlreadyDecided_MatchesItsOwnSentinel: the error a caller
+// really gets must match the sentinel exported for it.
+//
+// This is the hole the assertion above cannot see. ErrBoardAlreadyDecided was
+// exported, and Start returned a WrapError built from the *code* instead --
+// which attaches the class sentinel (ErrInvalidBoard) and nothing more. So
+// errors.Is(err, ErrBoardAlreadyDecided) was false for the only error it was
+// ever meant to describe, and the test guarding it compared the sentinel with
+// its own parent: true by construction, and blind to the bug.
+//
+// The rule this pins: **assert against the error a call actually returns, not
+// against a value declared next to it.**
+func TestStart_BoardAlreadyDecided_MatchesItsOwnSentinel(t *testing.T) {
+	opts := append(withNoopResolvers(),
+		WithVictoryChecker(VictoryFunc(func(GameView) (bool, Camp) {
+			return true, Camp("SOMEBODY")
+		})))
+	engine := newTestEngine(t, opts...)
+	mustAdd(t, engine, "p1", roleVillager)
+
+	err := engine.Start()
+	if err == nil {
+		t.Fatal("a board that is already decided must not start")
+	}
+	if !errors.Is(err, ErrBoardAlreadyDecided) {
+		t.Errorf("Start should match ErrBoardAlreadyDecided, got %v", err)
+	}
+	if !errors.Is(err, ErrInvalidBoard) {
+		t.Errorf("and it should still belong to the ErrInvalidBoard class, got %v", err)
+	}
+	if !HasCode(err, CodeInvalidBoard) {
+		t.Errorf("and carry CodeInvalidBoard, got %v", CodeOf(err))
+	}
+}
+

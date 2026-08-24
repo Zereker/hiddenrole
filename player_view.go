@@ -65,11 +65,13 @@ type PlayerView struct {
 // SelfInfo is everything a player is entitled to know about themselves.
 //
 // It deliberately does not reuse the god's-view PlayerInfo: that struct
-// carries Protected (whether the guard shielded them tonight), and who the
-// guard protected is the guard's exclusive information -- the moment the
-// protected player knows, they know they cannot be killed tonight, and the
-// guard's possible positions narrow sharply. A visibility difference of one
-// field should not depend on the caller remembering to blank it.
+// carries Vars and RoundVars, and what the rules keep in there is the rules'
+// own business -- "the guard shielded this player tonight" is a typical
+// entry, and it is the guard's exclusive information: the moment the
+// protected player learns it, they know they cannot be killed tonight and the
+// guard's possible positions narrow sharply. Which fields a player may see
+// should not depend on the caller remembering to blank the rest, so the
+// player-facing type simply has nowhere to put them.
 type SelfInfo struct {
 	ID    string   `json:"id"`
 	Role  RoleType `json:"role"`

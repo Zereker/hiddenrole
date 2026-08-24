@@ -79,3 +79,87 @@ func TestValidate_RoundBoundaryRequiredOnlyWhenTheGraphLoops(t *testing.T) {
 		}
 	})
 }
+
+// TestValidate_RejectsLifecyclePhases: START and END are the kernel's own
+// lifecycle, and a config may use neither as a phase of play.
+//
+// Both configurations below used to pass Validate, and both produce a game
+// that is broken **silently** -- which is the one outcome this function
+// exists to prevent (its own doc comment says so: a dangling NextPhase has to
+// surface at construction, not by the game ending in round three).
+//
+// What they actually did, measured before the check was added:
+//
+//	StartPhase = START      Start() succeeded and left Phase at START, so a
+//	                        second Start() also succeeded, AddPlayer still
+//	                        succeeded after the game had begun, and every
+//	                        EndPhase answered "game not started". The game
+//	                        could never move, and nothing ever said why.
+//	a phase keyed END       the game reached END and stopped, while that
+//	                        entry went on answering AllowedSkills and
+//	                        SubmitSkillUse kept **accepting** submissions --
+//	                        into a phase that can never resolve.
+func TestValidate_RejectsLifecyclePhases(t *testing.T) {
+	phaseA := PhaseType("A")
+	step := []PhaseStep{{Role: roleVillager, Skill: skillVote}}
+
+	t.Run("StartPhase must not be START", func(t *testing.T) {
+		cfg := &Config{
+			StartPhase: PhaseStart,
+			Phases: map[PhaseType]*PhaseConfig{
+				phaseA: {Type: phaseA, Steps: step, NextPhase: PhaseEnd},
+			},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("StartPhase = START should be rejected: the game could never advance")
+		} else if !HasCode(err, CodeInvalidConfig) {
+			t.Errorf("want INVALID_CONFIG, got %v (%v)", CodeOf(err), err)
+		}
+	})
+
+	t.Run("StartPhase must not be END", func(t *testing.T) {
+		// PhaseEnd is in Phases here on purpose. Without it, "the start phase
+		// is not present in the config" would reject this configuration for
+		// an unrelated reason, and the subtest would pass whether the rule
+		// under test exists or not.
+		cfg := &Config{
+			StartPhase: PhaseEnd,
+			Phases: map[PhaseType]*PhaseConfig{
+				phaseA:   {Type: phaseA, Steps: step, NextPhase: PhaseEnd},
+				PhaseEnd: {Type: PhaseEnd, Steps: step, NextPhase: PhaseEnd},
+			},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("StartPhase = END should be rejected: the game would begin over")
+		}
+	})
+
+	t.Run("no phase may be keyed START or END", func(t *testing.T) {
+		for _, lifecycle := range []PhaseType{PhaseStart, PhaseEnd} {
+			cfg := &Config{
+				StartPhase: phaseA,
+				Phases: map[PhaseType]*PhaseConfig{
+					phaseA:    {Type: phaseA, Steps: step, NextPhase: PhaseEnd},
+					lifecycle: {Type: lifecycle, Steps: step, NextPhase: PhaseEnd},
+				},
+			}
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("a phase keyed %v should be rejected: it is never resolved", lifecycle)
+			} else if !HasCode(err, CodeInvalidPhase) {
+				t.Errorf("%v: want INVALID_PHASE, got %v (%v)", lifecycle, CodeOf(err), err)
+			}
+		}
+	})
+
+	t.Run("ending the game with NextPhase: PhaseEnd is still fine", func(t *testing.T) {
+		cfg := &Config{
+			StartPhase: phaseA,
+			Phases: map[PhaseType]*PhaseConfig{
+				phaseA: {Type: phaseA, Steps: step, NextPhase: PhaseEnd},
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("END as a destination is the documented way to end a game: %v", err)
+		}
+	})
+}

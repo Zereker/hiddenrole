@@ -131,12 +131,12 @@ items without touching the engine.
 
 ## Status
 
-**Current release: [v1.5.0](../../CHANGELOG.md).** The generic kernel and the Werewolf
-rules are now separated: no code path in the engine recognises a specific role,
-camp, or cause of death, and the whole rule set is installed through the same
-public options a third party would use. 92.8% coverage across the three rule packs, 87.8% for the kernel itself (a separate repository, measured on its own)
-rules packs, every rule traced to the
-Wikipedia article, 5000 randomized games per test run.
+The generic kernel and the Werewolf rules are separated: no code path in the
+engine recognises a specific role, camp, or cause of death, and the whole rule
+set is installed through the same public options a third party would use.
+94.7% coverage over the kernel and the three rules packs together (they live
+in one module, so it is one measurement), every rule traced to its source, and
+5000 randomized games per test run across the three.
 
 **Breaking changes go to `/v2` from here on.** v1.5.0 was treated as a freeze
 point and v1.6.0 then removed thirteen exported names from the kernel on the

@@ -262,6 +262,20 @@ func (c *Config) Validate() error {
 		return WrapError(CodeInvalidConfig,
 			"config must declare StartPhase: the kernel has no default")
 	}
+	// START and END are the state machine's own lifecycle, not phases a
+	// ruleset may play in (see types.go). Starting at either wedges the game
+	// **silently**, which is the one outcome Validate exists to prevent:
+	//
+	//	StartPhase = START   Start() leaves Phase at START, so it can be called
+	//	                     again, AddPlayer still succeeds after the game has
+	//	                     begun, and EndPhase answers "game not started"
+	//	                     forever -- the game can never move
+	//	StartPhase = END     the game begins over
+	if c.StartPhase == PhaseStart || c.StartPhase == PhaseEnd {
+		return WrapError(CodeInvalidConfig,
+			"StartPhase must not be %v: START and END are the kernel's lifecycle, "+
+				"not phases a ruleset plays in", c.StartPhase)
+	}
 	// A round boundary is only required of a phase graph that **loops**; see
 	// loops().
 	if c.loops() {
@@ -283,6 +297,19 @@ func (c *Config) Validate() error {
 		if pc == nil {
 			return WrapError(CodeInvalidPhase,
 				"phase %v has a nil config", phaseType)
+		}
+		// Same reason as StartPhase above, from the other end: a phase
+		// **keyed** START or END is configuration the engine will never run.
+		// An END entry is the more deceptive of the two -- the game reaches
+		// END and stops there, but the entry keeps answering AllowedSkills
+		// and SubmitSkillUse accepts submissions into a phase that can never
+		// resolve, so players go on acting into a finished game and nothing
+		// says otherwise.
+		if phaseType == PhaseStart || phaseType == PhaseEnd {
+			return WrapError(CodeInvalidPhase,
+				"config declares a phase keyed %v: START and END are the kernel's "+
+					"lifecycle and are never resolved; use NextPhase: PhaseEnd to "+
+					"end the game", phaseType)
 		}
 		if pc.Type != phaseType {
 			return WrapError(CodeInvalidPhase,

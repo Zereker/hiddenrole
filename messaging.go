@@ -37,16 +37,23 @@ func (e *Engine) OnMessage(handler MessageHandler) {
 // SendMessage sends one player's speech, routed by the current phase to
 // whoever should hear it.
 //
-// The audible range is answered by a SpeechProvider (see WithSpeech).
-// **With no provider installed** the kernel falls back to a default:
-// eliminated players may not speak, and a phase where nobody can hear is a
-// rejection. With one installed it decides -- whether the dead may speak is
-// the rules' judgement, not the kernel's law (the dead in Blood on the
-// Clocktower hold a ghost vote, and werewolf has a last-words phase).
+// The audible range is answered by a SpeechProvider (see WithSpeech), and
+// **with no provider installed nobody can speak at all**: the kernel does not
+// know who should hear what, and its answer to that is silence rather than a
+// broadcast. Fail-closed is the deliberate choice here -- of the four
+// boundary questions this is the only one whose answer is acted on rather
+// than read, so a wrong guess does not return a wrong value, it delivers
+// private text to the wrong people.
+//
+// With a provider installed it decides everything, including whether the dead
+// may speak -- that is the rules' judgement, not the kernel's law (the dead
+// in Blood on the Clocktower hold a ghost vote, and werewolf has a last-words
+// phase).
 //
 // Errors: no such player (ErrPlayerNotFound); an eliminated player speaking
-// under the default rule (ErrPlayerDead); no receivers at all in the current
-// phase (ErrMessageNotAllowed).
+// while no provider is installed (ErrPlayerDead); nobody can hear this sender
+// in the current phase, which includes the no-provider case
+// (ErrMessageNotAllowed).
 func (e *Engine) SendMessage(senderID, content string) error {
 	msg, receiverIDs, handlers, err := e.prepareMessage(senderID, content)
 	if err != nil {
@@ -131,6 +138,10 @@ func (e *Engine) MessageReceivers(senderID string) []string {
 // chat being wolves-only is werewolf's convention, and another ruleset does
 // it entirely differently. The decision goes to a SpeechProvider; werewolf's
 // is wolfSpeech.
+//
+// With no provider the answer is nil, and SendMessage turns that into
+// ErrMessageNotAllowed. It is **not** "everybody hears it": the kernel
+// guessing an audience is exactly what this library exists to stop.
 func (e *Engine) getMessageReceivers(senderID string) []string {
 	if e.speech == nil {
 		return nil

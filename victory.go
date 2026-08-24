@@ -31,12 +31,15 @@ type VictoryFunc func(view GameView) (over bool, winner Camp)
 // CheckVictory implements VictoryChecker.
 func (f VictoryFunc) CheckVictory(view GameView) (bool, Camp) { return f(view) }
 
-// WithVictoryChecker replaces the built-in victory check.
+// WithVictoryChecker installs the victory check.
 //
-// Once replaced, Config.VictoryMode no longer has any effect -- that field
-// only feeds the built-in check. To add a condition on top of the built-in
-// rules (say "the lovers win if both survive"), wrap DefaultVictoryChecker:
-// ask your own condition first, then ask it.
+// The kernel's own default is neverEnds -- it does not know what winning
+// means -- so a rules package always installs one; werewolf.Options is
+// exactly that. To add a condition on top of a ruleset's own check (say "the
+// lovers win if both survive"), wrap the checker that ruleset exports: ask
+// your condition first, then delegate.
+//
+// Registering twice keeps the last registration.
 func WithVictoryChecker(checker VictoryChecker) EngineOption {
 	return func(e *Engine) error {
 		if checker == nil {

@@ -361,13 +361,22 @@ See I3. One non-configurable rule; everything else is configurable.
 |---|---|---|
 | who should be told about this event | `AudienceProvider` | "I don't know" (the caller routes it) |
 | who is on whose side | `TeammateProvider` | no teammates |
-| who hears this speech | `SpeechProvider` | every living player |
+| who hears this speech | `SpeechProvider` | **nobody** -- with no provider `SendMessage` is refused, see below |
 | what does this role additionally see | `RoleInfoProvider` | nothing |
 
 **Asymmetry is allowed**: the demon knows its minions and the reverse does not
 hold; the missions package's Oberon neither knows his fellows nor is known to
 them. That is the norm in social deduction games, and the kernel cannot assume
 symmetry.
+
+**Three of the four defaults are "I don't know"; the speech one is "no".**
+That asymmetry is on purpose. The first three are read by a caller who can see
+they got nothing back and route it themselves. Speech is not read, it is
+**acted on** -- so its default is the one place where guessing wrong sends
+private text to the wrong table. A ruleset that forgets `WithSpeech` gets
+`ErrMessageNotAllowed` on the first message; the alternative default would
+have handed the wolves' night chat to everyone, and no test in the ruleset
+would have noticed.
 
 ### 5.3 One player's three faces
 

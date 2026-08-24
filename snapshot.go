@@ -155,18 +155,24 @@ func (e *Engine) Snapshot() *Snapshot {
 
 // RestoreEngine rebuilds an engine from a snapshot.
 //
-// A nil config means the default configuration. **The rules configuration
+// config is required, as it is for NewEngine: the kernel has no default board
+// to fall back on, and a nil config is rejected outright. **The configuration
 // supplied on restore must match the one in force when the snapshot was
 // taken** -- a snapshot records the board, not the rules, and restoring under
 // a different configuration gives you a game whose rules changed halfway
 // through.
 //
+// A restored engine starts with an **empty effect log**: a snapshot is state,
+// not history (see Engine.EffectLog). If you need the history to survive a
+// restore, store the log yourself alongside the snapshot.
+//
 // Resolvers for custom roles must be passed through opts (WithResolver).
 // Omitting one makes that phase's skills be silently dropped, so resolver
 // validation runs here and a missing one is an outright error.
 //
-// Errors: a nil snapshot; an unsupported version; an empty or duplicate
-// player ID; a phase not present in the config; a phase with no resolver.
+// Errors: a nil config; a nil snapshot; an unsupported version; an empty or
+// duplicate player ID; a phase not present in the config; a phase with no
+// resolver.
 func RestoreEngine(config *Config, snap *Snapshot, opts ...EngineOption) (*Engine, error) {
 	if snap == nil {
 		return nil, ErrNilSnapshot

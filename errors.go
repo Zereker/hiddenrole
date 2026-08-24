@@ -129,6 +129,26 @@ func WrapError(code ErrorCode, format string, args ...interface{}) *GameError {
 	}
 }
 
+// wrapAs builds an error carrying context whose class is a **specific**
+// sentinel rather than the general one for its code.
+//
+// WrapError attaches the sentinel for the code, which is the right default:
+// most codes have exactly one. Where a code has a more specific sentinel
+// under it (CodeInvalidBoard has ErrBoardAlreadyDecided under ErrInvalidBoard),
+// producing the error with WrapError makes that specific sentinel match
+// nothing at all -- it stays exported, a caller writes
+// errors.Is(err, ErrBoardAlreadyDecided) against it, and gets false forever.
+// That was true of ErrBoardAlreadyDecided until this existed: the only test
+// naming it compared the sentinel with its own parent, which is true by
+// construction and guards nothing.
+func wrapAs(sentinel *GameError, format string, args ...interface{}) *GameError {
+	return &GameError{
+		Code:     sentinel.Code,
+		Message:  fmt.Sprintf(format, args...),
+		sentinel: sentinel,
+	}
+}
+
 // sentinelByCode maps an error code to its predefined sentinel.
 //
 // Where one code has several more specific sentinels (no werewolves and no

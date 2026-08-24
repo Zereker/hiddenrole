@@ -46,8 +46,13 @@ func newGameStartedEffect(phase PhaseType) *Effect {
 // post-game analysis and "what actually happened on night three"
 // investigations something to stand on.
 //
-// The returned slice is a copy, but the *Effect values inside it are the
-// engine's own objects; do not modify them.
+// Both the slice and the *Effect values in it are copies -- history cannot be
+// rewritten by a caller changing a field in passing, and Cancel is exported.
+//
+// The copy is one level deep. Effect.Data holds interface{} values, so a
+// payload that is itself a slice or a map (the ID list a SET_ACTORS effect
+// carries, say) is **shared** with the engine's own history; do not write
+// into one.
 //
 // # Division of labour with Snapshot
 //

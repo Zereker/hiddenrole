@@ -53,6 +53,61 @@ README（中英）开头新增「它做什么，你还得自己写什么」，�
 服务器」提到前面；仓库级 README 补上与出版方无关的声明（此前只写在 werewolf
 包的 README 里）。
 
+### 修复：`Config.Validate` 拒绝把 START / END 当作规则阶段
+
+两种配置此前都能过 Validate，而且**坏得没有声音**——这恰好是这个函数存在的
+理由（它自己的注释写着：这类问题必须在构造期暴露，而不是等游戏在第三回合
+莫名结束）。加校验前实测：
+
+	StartPhase = START   Start() 成功，且 Phase 仍停在 START，于是第二次
+	                     Start() 也成功、开局之后 AddPlayer 仍然成功、
+	                     之后每一次 EndPhase 都回答「game not started」。
+	                     局面永远动不了，而且没有任何一处说出原因。
+	Phases 里键为 END    游戏走到 END 停下，那条配置却继续回答
+	                     AllowedSkills，SubmitSkillUse 还**接受**提交——
+	                     提进一个永远不会结算的阶段。
+
+`NextPhase: PhaseEnd`（用 END 作为终点）不受影响，那是结束一局的正常写法。
+三个子测试都做过变异验证：把校验删掉，三个全红。
+
+### 修复：`ErrBoardAlreadyDecided` 现在真的会被返回
+
+它一直是导出的，而 `Start()` 走的是 `WrapError(CodeInvalidBoard, ...)`——
+只挂得上类哨兵 `ErrInvalidBoard`。于是 `errors.Is(err, ErrBoardAlreadyDecided)`
+对它唯一想描述的那个错误恒为 false。守着它的测试是
+`errors.Is(ErrBoardAlreadyDecided, ErrInvalidBoard)`——拿哨兵跟自己的父类比，
+按构造恒真，什么也守不住。
+
+新增内部 `wrapAs(sentinel, ...)`（不改导出面），`Start()` 改用它；测试改成
+**拿真跑出来的 err 去比**，同时断言它仍属于 `ErrInvalidBoard` 类、仍带
+`CodeInvalidBoard`。变异验证：改回 `WrapError` 立刻红。
+
+### 文档与代码对不上的六处，以代码为准改文档
+
+上一轮逐条核过的，都不是笔误，是文档跑在了代码前面：
+
+| 位置 | 此前说 | 实际 |
+|---|---|---|
+| `RestoreEngine` | nil config 表示「默认配置」 | 直接报 `config must not be nil`——内核**没有**默认配置正是它的立身之本 |
+| `SendMessage` / API.md / DESIGN.md | 没装 SpeechProvider 时「每个活人都听得到」 | **谁都不能说话**（`ErrMessageNotAllowed`） |
+| `EffectLog` | 切片是副本，里面的 `*Effect` 是引擎自己的对象 | 进出都 clone 过；但拷贝只有一层，`Data` 里的切片/映射仍与历史共享 |
+| `WithVictoryChecker` | 提到 `Config.VictoryMode` 与 `DefaultVictoryChecker` | 内核里两个都不存在（`VictoryMode` 是 werewolf 包的）——**内核文档引用规则包的名字** |
+| `SelfInfo` | 说 `PlayerInfo` 带 `Protected` 字段 | 那个字段早已并进 `Vars` |
+| `Apply` | 返回「真正生效的 effects」 | 被 Cancel 的也在返回值里（它们没生效） |
+
+**speech 那条是唯一一处「改文档而不是改代码」需要说明理由的**：三份文档都写着
+缺省广播给所有活人，代码是失败即拒。保留代码。四个边界问题里只有这一个的
+答案是**被拿去执行**的，另外三个是被读的——猜错的后果不是返回一个错值，而是
+把私聊发给不该看的人。规则包忘了 `WithSpeech`，得到一个错误只损失一分钟；
+得到一次静默广播则整局作废，而且规则包自己的测试不会发现。
+
+顺带：内核的 `Engine` 类型补上文档注释（此前是全仓唯一没有注释的导出声明，
+而它是 pkg.go.dev 首页第一个类型）；`MustNewEngine` 的 panic 文案由
+`werewolf: invalid game config` 改成 `hiddenrole:`——一个「不知道狼人杀是
+什么」的内核在 panic 里自称 werewolf，而 README 那条「全仓搜不到 werewolf」的
+自证只覆盖类型取值，覆盖不到字符串。werewolf README.en 里「内核在另一个仓库、
+单独测覆盖率」的说法也一并改掉，仓库早就合了。
+
 ### 「API 已冻结」换成与版本号相符的稳定性政策：STABILITY.md
 
 冻结是个定位声明，不是稳定性事实：v1.5.0 宣布冻结，v1.6.0 又在 v1 线上删了

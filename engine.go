@@ -4,6 +4,19 @@ import (
 	"sync"
 )
 
+// Engine is one game: the phase machine, the board, and the information
+// boundary drawn over it.
+//
+// Build one with NewEngine (or RestoreEngine / ReplayEngine to resume), drive
+// it with AddPlayer -> Start -> SubmitSkillUse -> EndPhase, and read it with
+// Status / View / PlayerView. It recognises no role, decides no winner and
+// draws no boundary until a rules package installs those through the
+// construction options; see the package documentation in doc.go.
+//
+// **All of its methods may be called concurrently.** Every read takes the
+// lock, and callbacks registered with OnEvent / OnMessage run after it is
+// released, so a handler may call back into the engine. The eight extension
+// points may not -- they run under the lock.
 type Engine struct {
 	mu sync.RWMutex
 
@@ -114,7 +127,7 @@ func NewEngine(config *Config, opts ...EngineOption) (*Engine, error) {
 func MustNewEngine(config *Config, opts ...EngineOption) *Engine {
 	engine, err := NewEngine(config, opts...)
 	if err != nil {
-		panic("werewolf: invalid game config: " + err.Error())
+		panic("hiddenrole: invalid game config: " + err.Error())
 	}
 	return engine
 }
@@ -208,7 +221,7 @@ func (e *Engine) startLocked() (*Effect, []EventHandler, error) {
 	// wolves against 2 villagers in wipe-out mode, where the wolves win on
 	// the first resolution).
 	if over, winner := e.victory.CheckVictory(newStateView(e.state)); over {
-		return nil, nil, WrapError(CodeInvalidBoard,
+		return nil, nil, wrapAs(ErrBoardAlreadyDecided,
 			"board is already decided before the game starts: winner=%v", winner)
 	}
 
@@ -491,7 +504,9 @@ func (e *Engine) View() GameView {
 // transition phases. To make the engine reconsider the outcome, call
 // EndPhase.
 //
-// It returns the effects that actually took hold (nils are dropped).
+// It returns the effects it processed: nils are dropped, and a vetoed effect
+// is still returned (it changed nothing, and Canceled/Reason say why) -- the
+// same convention as EndPhase's return value.
 func (e *Engine) Apply(effects ...*Effect) []*Effect {
 	e.mu.Lock()
 	kept, events := e.applyEffects(effects)

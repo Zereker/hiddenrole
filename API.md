@@ -292,8 +292,14 @@ type Message struct { /* sender, content, phase, round */ }
 ```
 
 Speech **does not go through the skill channel**. The audible range is decided
-by a `SpeechProvider`; with no provider installed it falls back to "every
-living player hears it".
+by a `SpeechProvider`, and **with no provider installed nobody can speak** --
+`SendMessage` returns `ErrMessageNotAllowed`.
+
+That default is deliberately closed rather than "everybody hears it". This is
+the one library whose core value is concealment: a rules package that forgets
+`WithSpeech` and gets an error on the first message loses a minute, while one
+that gets a silent broadcast of the wolves' night chat has voided the game and
+will not find out from a test.
 
 ### 5.5 Callbacks
 
