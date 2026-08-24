@@ -133,5 +133,5 @@ func (e *Engine) teammatesOf(playerID string) []string {
 	if e.teammates == nil {
 		return nil
 	}
-	return e.teammates.Teammates(playerID, newStateView(e.state))
+	return e.teammates.Teammates(playerID, e.view())
 }

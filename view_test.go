@@ -16,7 +16,7 @@ func TestGameView_IsReadOnly(t *testing.T) {
 	if err := st.addPlayer("v1", roleVillager); err != nil {
 		t.Fatal(err)
 	}
-	view := newStateView(st)
+	view := newStateView(st, &phaseTree{})
 
 	// Go through any to get past the compile-time check before asserting:
 	// *gameState does not implement GameView at all, so nothing that can
@@ -49,7 +49,7 @@ func TestGameView_ReadsThrough(t *testing.T) {
 	setRoundVar(st, testKillTarget, "v1")
 	st.applyEffect(NewSetVarEffect(ScopeGame.Of("g"), testVarStock, "v1"))
 
-	view := newStateView(st)
+	view := newStateView(st, &phaseTree{})
 
 	if got := len(view.AlivePlayers()); got != 3 {
 		t.Errorf("living players: want 3, got %d", got)
@@ -80,7 +80,7 @@ func TestGameView_RoundContextIsCopy(t *testing.T) {
 	}
 	setRoundVar(st, testKillTarget, "v1")
 
-	view := newStateView(st)
+	view := newStateView(st, &phaseTree{})
 	rc := view.RoundContext()
 	rc.Vars[testKillTarget] = "tampered"
 	rc.Vars["conjured-out-of-nowhere"] = "1"

@@ -59,7 +59,7 @@ func (e *Engine) roleInfoFor(playerID string, role RoleType) map[string]string {
 	if !ok {
 		return nil
 	}
-	info := provider.RoleInfo(playerID, newStateView(e.state))
+	info := provider.RoleInfo(playerID, e.view())
 	if len(info) == 0 {
 		return nil
 	}

@@ -238,13 +238,13 @@ func TestNameDetourActor_OnlyNamesItsOwnPhase(t *testing.T) {
 	s.applyEffect(NewDetourEffect("h1", phaseNightHunter))
 
 	// Enter a phase unrelated to the detour: nobody should be named.
-	s.nextPhase(phaseDay, false, false)
+	s.enterPhase(s.Phase, phaseDay, true, &phaseTree{})
 	if ids, ok := s.actorsFor(phaseDay); ok {
 		t.Errorf("the detour points at %v, yet entering %v named actors: %v", phaseNightHunter, phaseDay, ids)
 	}
 
 	// Enter the phase the detour is for: its player is named.
-	s.nextPhase(phaseNightHunter, false, false)
+	s.enterPhase(s.Phase, phaseNightHunter, true, &phaseTree{})
 	ids, ok := s.actorsFor(phaseNightHunter)
 	if !ok || len(ids) != 1 || ids[0] != "h1" {
 		t.Errorf("entering %v should name h1, got %v (present=%v)", phaseNightHunter, ids, ok)

@@ -23,6 +23,13 @@ type Board struct {
 	// Phase is the current phase.
 	Phase PhaseType
 
+	// Ancestry lists the compound phases Phase sits inside, innermost first.
+	//
+	// Only needed when the resolver under test asks GameView.InPhase. A board
+	// laid out by hand has no Config to read the hierarchy from, so it is
+	// stated here; leave it empty and InPhase is an equality test.
+	Ancestry []PhaseType
+
 	// Vars is state that lives for the whole game and belongs to no player
 	// (ScopeGame).
 	Vars map[string]string
@@ -60,7 +67,9 @@ func (b Board) Apply(effects []*Effect) Board {
 //
 // The returned view is a snapshot: modifying the Board afterwards does not
 // affect it.
-func (b Board) View() GameView { return newStateView(b.state()) }
+func (b Board) View() GameView {
+	return newStateView(b.state(), newFlatPhaseTree(b.Phase, b.Ancestry))
+}
 
 // Player returns one player; the second result is false when there is no
 // such player.

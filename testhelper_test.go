@@ -98,3 +98,7 @@ func newViewGame(t *testing.T) *Engine {
 	}
 	return e
 }
+
+// testTree is testConfig's phase hierarchy, for the state-level tests that
+// drive transitions directly instead of going through the engine.
+func testTree() *phaseTree { return newPhaseTree(testConfig()) }

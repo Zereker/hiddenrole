@@ -82,7 +82,7 @@ func replayFixture(t *testing.T) (*Engine, *Config, []EngineOption) {
 func TestReplayEngine_RebuildsTheSameBoard(t *testing.T) {
 	e, cfg, opts := replayFixture(t)
 
-	replayed, err := ReplayEngine(cfg, e.EffectLog(), opts...)
+	replayed, err := ReplayEngine(cfg, e.Log(), opts...)
 	if err != nil {
 		t.Fatalf("ReplayEngine: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestReplayEngine_RebuildsTheSameBoard(t *testing.T) {
 func TestReplayEngine_CarriesStateActorsAndBehaviour(t *testing.T) {
 	e, cfg, opts := replayFixture(t)
 
-	replayed, err := ReplayEngine(cfg, e.EffectLog(), opts...)
+	replayed, err := ReplayEngine(cfg, e.Log(), opts...)
 	if err != nil {
 		t.Fatalf("ReplayEngine: %v", err)
 	}
@@ -166,7 +166,7 @@ func endedGame(t *testing.T) (*Engine, *Config, []EngineOption) {
 func TestReplayEngine_CarriesTheWinner(t *testing.T) {
 	e, cfg, opts := endedGame(t)
 
-	replayed, err := ReplayEngine(cfg, e.EffectLog(), opts...)
+	replayed, err := ReplayEngine(cfg, e.Log(), opts...)
 	if err != nil {
 		t.Fatalf("ReplayEngine: %v", err)
 	}
@@ -178,24 +178,46 @@ func TestReplayEngine_CarriesTheWinner(t *testing.T) {
 	}
 }
 
-// TestReplayEngine_RejectsABrokenLog: a broken effect log must be rejected
-// rather than quietly rebuilding half a game.
+// TestReplayEngine_RejectsABrokenLog: a broken log must be rejected rather
+// than quietly rebuilding half a game.
 func TestReplayEngine_RejectsABrokenLog(t *testing.T) {
 	e, cfg, opts := replayFixture(t)
-	log := e.EffectLog()
+	log := e.Log()
+
+	// broken returns a copy of the log with one more entry on the end.
+	broken := func(extra *Effect) *GameLog {
+		return &GameLog{
+			Version: log.Version,
+			Effects: append(append([]*Effect{}, log.Effects...), extra),
+		}
+	}
 
 	t.Run("a nil entry", func(t *testing.T) {
-		broken := append([]*Effect{}, log...)
-		broken = append(broken, nil)
-		if _, err := ReplayEngine(cfg, broken, opts...); !HasCode(err, CodeInvalidEffectLog) {
+		if _, err := ReplayEngine(cfg, broken(nil), opts...); !HasCode(err, CodeInvalidEffectLog) {
 			t.Errorf("should be rejected as %v, got %v", CodeInvalidEffectLog, CodeOf(err))
 		}
 	})
 
 	t.Run("a PHASE_CHANGED carrying no phase", func(t *testing.T) {
-		broken := append([]*Effect{}, log...)
-		broken = append(broken, NewEffect(EventPhaseChanged, "", ""))
-		if _, err := ReplayEngine(cfg, broken, opts...); !HasCode(err, CodeInvalidEffectLog) {
+		bad := broken(NewEffect(EventPhaseChanged, "", ""))
+		if _, err := ReplayEngine(cfg, bad, opts...); !HasCode(err, CodeInvalidEffectLog) {
+			t.Errorf("should be rejected as %v, got %v", CodeInvalidEffectLog, CodeOf(err))
+		}
+	})
+
+	t.Run("a nil log", func(t *testing.T) {
+		if _, err := ReplayEngine(cfg, nil, opts...); !HasCode(err, CodeInvalidEffectLog) {
+			t.Errorf("should be rejected as %v, got %v", CodeInvalidEffectLog, CodeOf(err))
+		}
+	})
+
+	// A log written by a build whose entries mean something else must not be
+	// read through this build's understanding of them. This is the check that
+	// lets the *board* format move freely: the log is what a restore falls
+	// back on, so the log is the thing whose meaning has to be pinned.
+	t.Run("a log from an unknown format version", func(t *testing.T) {
+		future := &GameLog{Version: LogVersion + 1, Effects: log.Effects}
+		if _, err := ReplayEngine(cfg, future, opts...); !HasCode(err, CodeInvalidEffectLog) {
 			t.Errorf("should be rejected as %v, got %v", CodeInvalidEffectLog, CodeOf(err))
 		}
 	})
@@ -215,11 +237,11 @@ func TestReplayEngine_RejectsABrokenLog(t *testing.T) {
 func TestReplayEngine_LogIsPreserved(t *testing.T) {
 	e, cfg, opts := replayFixture(t)
 
-	once, err := ReplayEngine(cfg, e.EffectLog(), opts...)
+	once, err := ReplayEngine(cfg, e.Log(), opts...)
 	if err != nil {
 		t.Fatalf("ReplayEngine: %v", err)
 	}
-	twice, err := ReplayEngine(cfg, once.EffectLog(), opts...)
+	twice, err := ReplayEngine(cfg, once.Log(), opts...)
 	if err != nil {
 		t.Fatalf("replaying again: %v", err)
 	}
@@ -263,7 +285,7 @@ func TestApply_GoesThroughTheSameWritePoint(t *testing.T) {
 		if len(e.EffectLog()) <= before {
 			t.Fatal("an effect from Apply should enter the effect log")
 		}
-		replayed, err := ReplayEngine(testConfig(), e.EffectLog(), withNoopResolvers()...)
+		replayed, err := ReplayEngine(testConfig(), e.Log(), withNoopResolvers()...)
 		if err != nil {
 			t.Fatalf("ReplayEngine: %v", err)
 		}

@@ -12,15 +12,13 @@ build:
 test:
 	go test ./...
 
-# Coverage is measured over the kernel package alone (`.`, not `./...`), which
-# leaves out the enginetest sub-package: that is a test harness for rules
-# packages, it has no tests of its own and should not have any -- the code that
-# drives it lives in another module, and cross-module coverage cannot be
-# measured anyway. Counting it drags the number from 87.8% down to 76.9%, and
-# those 11 points are an artefact of how it is measured, not code that is
-# untested.
+# Coverage over both packages. It used to be measured over `.` alone, on the
+# grounds that enginetest "is a test harness for rules packages, it has no
+# tests of its own and should not have any" -- which was true, and was the
+# problem: the strongest verification this project has had no caller here, so
+# the kernel's own CI never ran it.
 test-cover:
-	go test -coverprofile=coverage.out . && go tool cover -func=coverage.out | tail -1
+	go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
 
 race:
 	go test -race ./...

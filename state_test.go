@@ -228,7 +228,7 @@ func TestNextPhase_ToDay(t *testing.T) {
 	state.Phase = phaseNight
 	state.Round = 1
 
-	state.nextPhase(phaseDay, false, false) // the previous phase declared neither
+	state.enterPhase(state.Phase, phaseDay, true, &phaseTree{}) // no actions declared either side
 
 	if state.Phase != phaseDay {
 		t.Errorf("expected Phase=DAY, got %v", state.Phase)
@@ -249,7 +249,7 @@ func TestNextPhase_ToNightGuard_IncrementsRound(t *testing.T) {
 	// The second argument is "was the phase just resolved the end of this
 	// round", declared by PhaseConfig.EndsRound -- the kernel no longer
 	// guesses it from the phase cycle.
-	state.nextPhase(phaseNightGuard, true, true)
+	state.enterPhase(state.Phase, phaseNightGuard, true, testTree())
 
 	if state.Phase != phaseNightGuard {
 		t.Errorf("expected Phase=NIGHT_GUARD, got %v", state.Phase)

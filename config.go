@@ -1,6 +1,7 @@
 package hiddenrole
 
 import (
+	"sort"
 	"time"
 )
 
@@ -61,57 +62,98 @@ func (c *Config) PhaseTimeout(phase PhaseType) time.Duration {
 	return DefaultPhaseTimeout
 }
 
+// PhaseAction is something the machine does on the way into or out of a
+// phase.
+//
+// These two used to be two booleans on PhaseConfig, EndsRound and
+// ClearsRoundVars. They were already entry and exit actions in everything but
+// name -- one described what happens when a phase finishes, the other what
+// happens before another one begins -- and every new requirement of the same
+// kind would have added a third boolean, with the interaction between them
+// living nowhere but a comment.
+//
+// As a named list they gain three things: a compound phase can declare one
+// **once** for a whole group (see PhaseConfig.Parent), the next lifetime is a
+// new constant rather than a new field, and an unrecognised action is
+// rejected by Validate instead of being silently ignored.
+type PhaseAction string
+
+const (
+	// ActionAdvanceRound moves the round counter on by one. Declared in
+	// OnExit: it describes what a phase's ending means.
+	//
+	// What one round of a game is, only the rules know. The kernel used to
+	// guess -- "looping back to StartPhase counts as a new round" -- which
+	// holds for werewolf (night -> day -> night) and not for the
+	// mission-based games, where the loop is one nomination and the round
+	// number silently became a nomination counter.
+	ActionAdvanceRound PhaseAction = "ADVANCE_ROUND"
+
+	// ActionClearRoundVars clears all round-scoped state. Declared in
+	// OnEnter: it describes how a phase begins.
+	//
+	// It is separate from ActionAdvanceRound because counting and lifetime
+	// are two different things. In werewolf they coincide (a night marker
+	// lives exactly one round); in the mission-based games one mission may
+	// take five nominations, so the team markers and the round number move on
+	// different beats. Welded together, the kernel was one lifetime short and
+	// the rules made up the difference by hand.
+	ActionClearRoundVars PhaseAction = "CLEAR_ROUND_VARS"
+)
+
+// knownActions is the closed set. Validate rejects anything else: an action
+// the kernel does not recognise would otherwise be declared, ignored, and
+// leave the rules believing state was being cleared when it was not.
+var knownActions = map[PhaseAction]bool{
+	ActionAdvanceRound:   true,
+	ActionClearRoundVars: true,
+}
+
 // PhaseConfig configures one phase.
+//
+// A phase is either a **leaf** -- somewhere the machine actually stops, with
+// steps to run and an exit to take -- or a **compound phase**, which is
+// nothing but a name for a group of phases (see Parent). Validate keeps the
+// two apart: a compound phase carries no steps and no exit, and is never a
+// transition target.
 type PhaseConfig struct {
 	Type      PhaseType     // which phase this is
 	Steps     []PhaseStep   // its steps, in order
 	Timeout   time.Duration // suggested timeout; advice, the engine does not time by it
 	NextPhase PhaseType     // the default exit, overridable by a GOTO_PHASE effect
 
-	// EndsRound means that once this phase resolves a new round begins: the
-	// round number goes up by one and all round-scoped state is cleared.
+	// Parent is the compound phase this one sits inside, empty for a
+	// top-level phase.
 	//
-	// The kernel used to guess this for itself: "looping back to StartPhase
-	// counts as a new round". In werewolf that guess happens to hold (night
-	// -> day -> night); in another ruleset it does not -- the mission-based
-	// games go round the loop once per nomination, so the engine's "round"
-	// became a nomination counter, out by as much as a factor of five from
-	// what those rules call "which mission we are on", and it was handed to
-	// players verbatim in PlayerView.Round.
+	// **"The night as a whole" used to be inexpressible.** The phase graph
+	// was flat, so anything true of all four NIGHT_* phases had to be
+	// declared four times, and a SpeechProvider asking "is it night" had to
+	// enumerate them. Werewolf's night genuinely is one thing containing four
+	// things, and the configuration could not say so.
 	//
-	// What one round of a game is, only the rules know. The kernel no longer
-	// guesses and reads this field instead: declaring it on a phase says
-	// "once this phase resolves, the round is over".
+	// Naming a parent buys two things:
 	//
-	// It **only governs counting**. When round-scoped variables are cleared
-	// is a separate matter, declared by ClearsRoundVars below -- the two are
-	// often marked on adjacent phases, but they are two different things.
-	EndsRound bool
+	//	OnEnter / OnExit declared once for the whole group, fired exactly
+	//	once on the way in and out of it (see gameState.enterPhase)
+	//
+	//	GameView.InPhase(NIGHT), true throughout, so the rules ask about the
+	//	group rather than about a list of members
+	//
+	// Nesting is allowed to any depth; Validate rejects a cycle.
+	Parent PhaseType
 
-	// ClearsRoundVars means round-scoped variables are all cleared **before
-	// entering** this phase.
+	// OnEnter runs, in order, when the machine enters this phase.
 	//
-	// Read it as "this phase starts from a clean board" -- unlike EndsRound,
-	// it describes how the phase begins, not what it does when it finishes.
-	//
-	// "The round number" and "a variable's lifetime" used to be welded
-	// together, with EndsRound doing both jobs. In werewolf they happen to
-	// coincide (a night marker lives until the next night, and that is
-	// exactly one round), which is why nothing looked wrong. In the
-	// mission-based games they do not:
-	//
-	//	team markers live until the next nomination begins   one mission may take five nominations
-	//	the round number tracks which mission it is          or the number shown to players is meaningless
-	//
-	// So the mission rules had to clear them by hand in the nomination
-	// resolver -- the kernel was one lifetime short and the rules made up the
-	// difference. The two are now declared separately, and each phase speaks
-	// only about itself.
-	//
-	// Validate checks that at least one phase declares it: with none, round
-	// variables are never cleared, and in werewolf the antidote the witch
-	// spent would go on saving the same person night after night.
-	ClearsRoundVars bool
+	// On a compound phase it runs when the group is entered from outside --
+	// not on every move between its members. Going NIGHT_GUARD -> NIGHT_WOLF
+	// stays inside NIGHT, so NIGHT's actions do not fire; going DAY ->
+	// NIGHT_GUARD enters NIGHT, so they do.
+	OnEnter []PhaseAction
+
+	// OnExit runs, in order, when the machine leaves this phase. Same
+	// grouping rule as OnEnter, in reverse: a compound phase's exit actions
+	// run only when the group is actually left.
+	OnExit []PhaseAction
 }
 
 // PhaseStep is one step of a phase. Their order is the slice's order.
@@ -267,11 +309,11 @@ func (c *Config) Validate() error {
 	if c.loops() {
 		if !c.hasRoundBoundary() {
 			return WrapError(CodeInvalidConfig,
-				"no phase declares EndsRound: the round would never advance")
+				"no phase declares %s: the round would never advance", ActionAdvanceRound)
 		}
 		if !c.hasVarReset() {
 			return WrapError(CodeInvalidConfig,
-				"no phase declares ClearsRoundVars: round-scoped state would never reset")
+				"no phase declares %s: round-scoped state would never reset", ActionClearRoundVars)
 		}
 	}
 	if _, ok := c.Phases[c.StartPhase]; !ok {
@@ -279,7 +321,17 @@ func (c *Config) Validate() error {
 			"start phase %v is not present in config", c.StartPhase)
 	}
 
-	for phaseType, pc := range c.Phases {
+	composite := c.compositePhases()
+	if composite[c.StartPhase] {
+		return WrapError(CodeInvalidPhase,
+			"start phase %v is a compound phase; start at one of its members", c.StartPhase)
+	}
+
+	// Walk the phases in a fixed order. Map iteration order is random, so
+	// which of several problems gets reported used to change from run to run
+	// -- an unpleasant thing to hit while working out why a board is invalid.
+	for _, phaseType := range c.sortedPhases() {
+		pc := c.Phases[phaseType]
 		if pc == nil {
 			return WrapError(CodeInvalidPhase,
 				"phase %v has a nil config", phaseType)
@@ -287,6 +339,29 @@ func (c *Config) Validate() error {
 		if pc.Type != phaseType {
 			return WrapError(CodeInvalidPhase,
 				"phase %v is registered under key %v", pc.Type, phaseType)
+		}
+		if err := c.validateActions(phaseType, pc); err != nil {
+			return err
+		}
+		if err := c.validateParent(phaseType, pc, composite); err != nil {
+			return err
+		}
+
+		// A compound phase is a name for a group, not a stop on the way. It
+		// carries no steps and no exit, and nothing transitions to it -- were
+		// it a target, the machine would sit in a state with no resolver and
+		// no way out. Entering "the night" means entering one of the night's
+		// phases.
+		if composite[phaseType] {
+			if len(pc.Steps) > 0 {
+				return WrapError(CodeInvalidPhase,
+					"compound phase %v declares steps; steps belong to its members", phaseType)
+			}
+			if pc.NextPhase != PhaseUnspecified {
+				return WrapError(CodeInvalidPhase,
+					"compound phase %v declares NextPhase; an exit belongs to its members", phaseType)
+			}
+			continue
 		}
 
 		// A dangling NextPhase ends the game silently mid-way.
@@ -303,6 +378,11 @@ func (c *Config) Validate() error {
 				return WrapError(CodeInvalidPhase,
 					"phase %v points to %v which is not present in config", phaseType, pc.NextPhase)
 			}
+			if composite[pc.NextPhase] {
+				return WrapError(CodeInvalidPhase,
+					"phase %v points to compound phase %v; name one of its members",
+					phaseType, pc.NextPhase)
+			}
 		}
 
 		if err := validateSteps(phaseType, pc.Steps); err != nil {
@@ -310,6 +390,93 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// sortedPhases lists every configured phase in a fixed order.
+func (c *Config) sortedPhases() []PhaseType {
+	out := make([]PhaseType, 0, len(c.Phases))
+	for p := range c.Phases {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// compositePhases is the set of phases that some other phase calls its
+// parent.
+//
+// Being a compound phase is not declared, it is **observed**: a phase becomes
+// one by being named. A separate boolean would be a second source for one
+// fact, and the two could disagree.
+func (c *Config) compositePhases() map[PhaseType]bool {
+	out := make(map[PhaseType]bool, len(c.Phases))
+	for _, pc := range c.Phases {
+		if pc != nil && pc.Parent != PhaseUnspecified {
+			out[pc.Parent] = true
+		}
+	}
+	return out
+}
+
+// validateActions rejects an action the kernel does not recognise.
+//
+// Declared and ignored is the worst outcome: the rules would believe round
+// state was being cleared while it was not, and the bug would surface as a
+// spent potion coming back to life several rounds later.
+func (c *Config) validateActions(phase PhaseType, pc *PhaseConfig) error {
+	for _, group := range []struct {
+		where   string
+		actions []PhaseAction
+	}{{"OnEnter", pc.OnEnter}, {"OnExit", pc.OnExit}} {
+		for _, a := range group.actions {
+			if !knownActions[a] {
+				return WrapError(CodeInvalidPhase,
+					"phase %v declares unknown %s action %q", phase, group.where, a)
+			}
+		}
+	}
+	return nil
+}
+
+// validateParent checks one phase's place in the hierarchy: the parent has to
+// exist, has to be a compound phase, and the chain has to terminate.
+func (c *Config) validateParent(phase PhaseType, pc *PhaseConfig, composite map[PhaseType]bool) error {
+	if pc.Parent == PhaseUnspecified {
+		return nil
+	}
+	if pc.Parent == phase {
+		return WrapError(CodeInvalidPhase, "phase %v is its own parent", phase)
+	}
+	if _, ok := c.Phases[pc.Parent]; !ok {
+		return WrapError(CodeInvalidPhase,
+			"phase %v names parent %v which is not present in config", phase, pc.Parent)
+	}
+	if !composite[pc.Parent] {
+		// Unreachable in practice -- naming a parent is what makes it one --
+		// but stated so the invariant is checked rather than assumed.
+		return WrapError(CodeInvalidPhase,
+			"phase %v names parent %v which is not a compound phase", phase, pc.Parent)
+	}
+
+	// Walk to the root. A cycle would make the transition machinery loop
+	// forever while computing which groups are being entered and left, and
+	// Validate is the gate that has to catch it -- the same reasoning as
+	// loops(), which is bounded for the same reason.
+	seen := map[PhaseType]bool{phase: true}
+	for at := pc.Parent; at != PhaseUnspecified; {
+		if seen[at] {
+			return WrapError(CodeInvalidPhase,
+				"phase %v sits in a cycle of compound phases", phase)
+		}
+		seen[at] = true
+		next := c.Phases[at]
+		if next == nil {
+			return WrapError(CodeInvalidPhase,
+				"compound phase %v is not present in config", at)
+		}
+		at = next.Parent
+	}
 	return nil
 }
 
@@ -374,23 +541,6 @@ func (c *Config) startPhase() PhaseType {
 	return c.StartPhase
 }
 
-// endsRound reports whether a new round begins once this phase resolves.
-//
-// An unrecognised phase is always false: a round boundary is better skipped
-// than invented -- inventing one clears every marker of the current round,
-// and the rules would see a "new round" that never happened.
-func (c *Config) endsRound(phase PhaseType) bool {
-	pc := c.Phases[phase]
-	return pc != nil && pc.EndsRound
-}
-
-// clearsRoundVars reports whether round-scoped variables are cleared before
-// entering this phase.
-func (c *Config) clearsRoundVars(phase PhaseType) bool {
-	pc := c.Phases[phase]
-	return pc != nil && pc.ClearsRoundVars
-}
-
 // loops reports whether the phase graph goes round in a circle: following the
 // default exits, does it ever return to a phase already visited.
 //
@@ -452,12 +602,7 @@ func (c *Config) loops() bool {
 // the kernel guessed it, there was no way to check whether the guess was
 // right; once the rules declare it, it can be checked.
 func (c *Config) hasRoundBoundary() bool {
-	for _, pc := range c.Phases {
-		if pc != nil && pc.EndsRound {
-			return true
-		}
-	}
-	return false
+	return c.declaresAction(ActionAdvanceRound)
 }
 
 // hasVarReset reports whether any phase declares that it starts from a clean
@@ -469,9 +614,22 @@ func (c *Config) hasRoundBoundary() bool {
 // what handing the decision to the rules **bought**: it could not be checked
 // while the kernel had it welded in.
 func (c *Config) hasVarReset() bool {
+	return c.declaresAction(ActionClearRoundVars)
+}
+
+// declaresAction reports whether any phase declares this action, on entry or
+// on exit.
+func (c *Config) declaresAction(want PhaseAction) bool {
 	for _, pc := range c.Phases {
-		if pc != nil && pc.ClearsRoundVars {
-			return true
+		if pc == nil {
+			continue
+		}
+		for _, list := range [][]PhaseAction{pc.OnEnter, pc.OnExit} {
+			for _, a := range list {
+				if a == want {
+					return true
+				}
+			}
 		}
 	}
 	return false

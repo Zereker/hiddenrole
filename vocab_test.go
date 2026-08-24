@@ -18,6 +18,7 @@ const (
 	roleHunter   = RoleType("HUNTER")
 	roleVillager = RoleType("VILLAGER")
 	roleGuard    = RoleType("GUARD")
+	roleIdiot    = RoleType("IDIOT")
 
 	phaseNight        = PhaseType("NIGHT")
 	phaseNightGuard   = PhaseType("NIGHT_GUARD")
@@ -77,18 +78,27 @@ func testConfig() *Config {
 	step := func(role RoleType, skill SkillType) []PhaseStep {
 		return []PhaseStep{{Role: role, Skill: skill, Required: true}}
 	}
+	// The night is one thing containing five things, and the configuration
+	// now says so: NIGHT is a compound phase, and "a night begins from a
+	// clean board" is declared on it once instead of on whichever member
+	// happens to come first.
+	night := func(pc *PhaseConfig) *PhaseConfig {
+		pc.Parent = phaseNight
+		return pc
+	}
 	return &Config{
 		StartPhase: phaseNightGuard,
 		Phases: map[PhaseType]*PhaseConfig{
-			phaseNightGuard:   {Type: phaseNightGuard, Steps: step(roleGuard, skillProtect), NextPhase: phaseNightWolf, ClearsRoundVars: true},
-			phaseNightWolf:    {Type: phaseNightWolf, Steps: step(roleWerewolf, skillKill), NextPhase: phaseNightWitch},
-			phaseNightWitch:   {Type: phaseNightWitch, Steps: []PhaseStep{{Role: roleWitch, Skill: skillAntidote, AllowDeadTarget: true}, {Role: roleWitch, Skill: skillPoison}}, NextPhase: phaseNightSeer},
-			phaseNightSeer:    {Type: phaseNightSeer, Steps: step(roleSeer, skillCheck), NextPhase: phaseNightResolve},
-			phaseNightResolve: {Type: phaseNightResolve, NextPhase: phaseDay},
-			phaseNightHunter:  {Type: phaseNightHunter, Steps: []PhaseStep{{Role: roleHunter, Skill: skillShoot, Group: "shoot"}, {Role: roleHunter, Skill: SkillSkip, Group: "shoot"}}, NextPhase: phaseDay},
+			phaseNight:        {Type: phaseNight, OnEnter: []PhaseAction{ActionClearRoundVars}},
+			phaseNightGuard:   night(&PhaseConfig{Type: phaseNightGuard, Steps: step(roleGuard, skillProtect), NextPhase: phaseNightWolf}),
+			phaseNightWolf:    night(&PhaseConfig{Type: phaseNightWolf, Steps: step(roleWerewolf, skillKill), NextPhase: phaseNightWitch}),
+			phaseNightWitch:   night(&PhaseConfig{Type: phaseNightWitch, Steps: []PhaseStep{{Role: roleWitch, Skill: skillAntidote, AllowDeadTarget: true}, {Role: roleWitch, Skill: skillPoison}}, NextPhase: phaseNightSeer}),
+			phaseNightSeer:    night(&PhaseConfig{Type: phaseNightSeer, Steps: step(roleSeer, skillCheck), NextPhase: phaseNightResolve}),
+			phaseNightResolve: night(&PhaseConfig{Type: phaseNightResolve, NextPhase: phaseDay}),
+			phaseNightHunter:  night(&PhaseConfig{Type: phaseNightHunter, Steps: []PhaseStep{{Role: roleHunter, Skill: skillShoot, Group: "shoot"}, {Role: roleHunter, Skill: SkillSkip, Group: "shoot"}}, NextPhase: phaseDay}),
 			phaseDay:          {Type: phaseDay, NextPhase: phaseVote},
-			phaseVote:         {Type: phaseVote, Steps: []PhaseStep{{Role: RoleUnspecified, Skill: skillVote, Required: true, Multiple: true}}, NextPhase: phaseNightGuard, EndsRound: true},
-			phaseDayHunter:    {Type: phaseDayHunter, Steps: []PhaseStep{{Role: roleHunter, Skill: skillShoot, Group: "shoot"}, {Role: roleHunter, Skill: SkillSkip, Group: "shoot"}}, NextPhase: phaseNightGuard, EndsRound: true},
+			phaseVote:         {Type: phaseVote, Steps: []PhaseStep{{Role: RoleUnspecified, Skill: skillVote, Required: true, Multiple: true}}, NextPhase: phaseNightGuard, OnExit: []PhaseAction{ActionAdvanceRound}},
+			phaseDayHunter:    {Type: phaseDayHunter, Steps: []PhaseStep{{Role: roleHunter, Skill: skillShoot, Group: "shoot"}, {Role: roleHunter, Skill: SkillSkip, Group: "shoot"}}, NextPhase: phaseNightGuard, OnExit: []PhaseAction{ActionAdvanceRound}},
 		},
 	}
 }

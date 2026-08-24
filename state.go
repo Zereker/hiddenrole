@@ -409,7 +409,7 @@ func (s *gameState) applyEffect(effect *Effect) {
 	// state. Two effects, two things: the first for the audience and the
 	// effect log, the second for the state machine.
 	case EventSetAlive:
-		if alive, ok := aliveOf(effect); ok {
+		if alive, ok := effect.SetsAlive(); ok {
 			if target, found := s.players[effect.TargetID]; found {
 				target.Alive = alive
 			}
@@ -419,7 +419,7 @@ func (s *gameState) applyEffect(effect *Effect) {
 		// One piece of custom state, its scope carried in the effect. An
 		// empty value deletes, so that empty strings do not pile up in the
 		// snapshot.
-		if scope, key, value := varOf(effect); key != "" {
+		if scope, key, value, ok := effect.SetsVar(); ok {
 			s.setVar(scope, key, value)
 		}
 
@@ -438,20 +438,20 @@ func (s *gameState) applyEffect(effect *Effect) {
 
 	case EventDetour:
 		// Enqueue a detour, to be settled when play reaches its phase.
-		if phase, ok := effect.detourPhase(); ok && effect.SourceID != "" {
+		if phase, ok := phaseOf(effect); ok && effect.SourceID != "" {
 			s.RoundCtx.Detours = append(s.RoundCtx.Detours,
 				Detour{PlayerID: effect.SourceID, Phase: phase})
 		}
 	}
 }
 
-// resetRoundState resets the round state, called at the start of each round.
+// resetRoundState clears everything whose lifetime is one round.
+//
+// It used to be two functions, one calling the other, with the inner one
+// suffixed "Unlocked" -- a leftover from when gameState carried a mutex of
+// its own. There is no lock here any more, so the suffix named nothing and
+// the wrapper forwarded nothing.
 func (s *gameState) resetRoundState() {
-	s.resetRoundStateUnlocked()
-}
-
-// resetRoundStateUnlocked is the internal form, taking no lock.
-func (s *gameState) resetRoundStateUnlocked() {
 	s.RoundCtx = newRoundContext()
 	// The round markers on players belong to this round too, so clear them
 	// along with it -- miss this and last night's "guarded" and "poisoned"
@@ -467,7 +467,7 @@ func (s *gameState) resetRoundStateUnlocked() {
 func (s *gameState) startAt(phase PhaseType) {
 	s.Phase = phase
 	s.Round = 1
-	s.resetRoundStateUnlocked()
+	s.resetRoundState()
 }
 
 // leavePhase consumes the one-shot things on leaving the current phase.
@@ -495,27 +495,56 @@ func (s *gameState) leavePhase() {
 	s.consumeDetourFor(s.Phase)
 }
 
-// nextPhase moves to the next phase.
+// enterPhase moves the machine from one phase to another, running the exit
+// actions of every phase actually being left and the entry actions of every
+// phase actually being entered (see phaseTree.transitionSets).
 //
-// endsRound is declared by the phase **just resolved**
-// (PhaseConfig.EndsRound): true means the round ends here, so the round
-// number goes up and all round-scoped state is cleared.
+// This replaced a function that took two booleans, "does the round end" and
+// "are the round variables cleared", computed by the caller from the phase on
+// either side. Those two were entry and exit actions wearing a different
+// name, and expressing them as such is what lets a compound phase declare one
+// for a whole group: "the night begins from a clean board" is now written
+// once on NIGHT rather than on whichever of its members happens to come
+// first.
 //
-// The kernel used to guess this -- "looping back to the start phase counts as
-// a new round". That guess holds for werewolf (night -> day -> night) and not
-// for other rulesets: the mission-based games go round the loop once per
-// nomination, so "round" became a nomination counter. What one round of a
-// game is, only the rules know, and the kernel no longer decides it for
-// them.
-func (s *gameState) nextPhase(phase PhaseType, endsRound, clearVars bool) {
-	s.Phase = phase
-	if endsRound {
-		s.Round++
+// settled says the board is at rest. While it is false -- a detour is still
+// pending, or the game is ending on this step -- **no action runs at all**.
+// Both of the actions there are do round bookkeeping, and the pending detour
+// queue itself lives in the round context: clearing it would erase a debt
+// that was never settled, and the exiled hunter's shot would vanish.
+func (s *gameState) enterPhase(from, to PhaseType, settled bool, tree *phaseTree) {
+	exiting, entering := tree.transitionSets(from, to)
+
+	if settled {
+		for _, phase := range exiting {
+			s.runActions(tree.onExit[phase])
+		}
 	}
-	if clearVars {
-		s.resetRoundStateUnlocked()
+
+	s.Phase = to
+
+	if settled {
+		for _, phase := range entering {
+			s.runActions(tree.onEnter[phase])
+		}
 	}
+
 	s.nameDetourActor()
+}
+
+// runActions performs a phase's declared actions in order.
+//
+// An action the kernel does not recognise is impossible here: Validate
+// rejects one at construction, which is the whole reason the set is closed.
+func (s *gameState) runActions(actions []PhaseAction) {
+	for _, a := range actions {
+		switch a {
+		case ActionAdvanceRound:
+			s.Round++
+		case ActionClearRoundVars:
+			s.resetRoundState()
+		}
+	}
 }
 
 // nameDetourActor writes the owed player as this phase's actor list, when the
@@ -525,13 +554,11 @@ func (s *gameState) nextPhase(phase PhaseType, endsRound, clearVars bool) {
 // used to be two parallel mechanisms: actorsForStep and validateSkillUse each
 // had a three-layer decision, asking the detour queue first, the named actors
 // second, and computing by role third. Both paths answered the same question
-// with nearly word-for-word identical implementations (triggerActorFor and
-// namedActorsFor were both "of the players named, who carries this role's
-// step") -- one concept, two implementations, both to be kept in step.
+// with nearly word-for-word identical implementations -- one concept, two
+// implementations, both to be kept in step.
 //
 // The queue no longer answers "who may act": it only **produces** a list, and
-// everything after that follows the naming path. Three layers became two, and
-// triggerActorFor and isTriggerActor were deleted together.
+// everything after that follows the naming path.
 //
 // It lives here rather than at the DETOUR write point: the queue may hold
 // several detours pointing at the same phase (two hunters eliminated on one
@@ -539,8 +566,8 @@ func (s *gameState) nextPhase(phase PhaseType, endsRound, clearVars bool) {
 // other, leaving only the last one able to shoot. Taking the **head** on
 // entering the phase is what a queue means in the first place.
 //
-// Normal progression and effect-log replay share this path (both go through
-// nextPhase), so they cannot diverge.
+// Normal progression and log replay share this path (both go through
+// enterPhase), so they cannot diverge.
 func (s *gameState) nameDetourActor() {
 	t, ok := s.peekDetour()
 	if !ok || t.Phase != s.Phase {

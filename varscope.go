@@ -1,5 +1,7 @@
 package hiddenrole
 
+import "encoding/json"
+
 // VarScope is a variable's scope: how long a piece of custom state lives, and
 // whom it belongs to.
 //
@@ -64,4 +66,35 @@ func (s VarScope) String() string {
 		return name
 	}
 	return name + ":" + s.owner
+}
+
+// varScopeJSON is VarScope's serialised form.
+//
+// The fields stay unexported on the type itself -- that is what keeps the
+// 2x2 table from being bypassed by a struct literal -- so the two cells are
+// written out explicitly here rather than by embedding. A delimited string
+// ("round:p1") was the other option and was rejected: a player ID containing
+// a colon would parse back as a different scope.
+type varScopeJSON struct {
+	PerRound bool   `json:"per_round,omitempty"`
+	Owner    string `json:"owner,omitempty"`
+}
+
+// MarshalJSON implements json.Marshaler.
+//
+// A scope travels inside the effect log, and the effect log is the durable
+// record (see GameLog), so it has to survive a round trip exactly -- the
+// wrong cell means a round-scoped write landing in whole-game storage.
+func (s VarScope) MarshalJSON() ([]byte, error) {
+	return json.Marshal(varScopeJSON{PerRound: s.perRound, Owner: s.owner})
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (s *VarScope) UnmarshalJSON(data []byte) error {
+	var j varScopeJSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	s.perRound, s.owner = j.PerRound, j.Owner
+	return nil
 }

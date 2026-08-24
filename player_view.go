@@ -257,5 +257,5 @@ func (e *Engine) AudienceOf(event *Event) ([]string, bool) {
 	if e.audience == nil {
 		return nil, false
 	}
-	return e.audience.Audience(event, newStateView(e.state))
+	return e.audience.Audience(event, e.view())
 }

@@ -1,85 +1,128 @@
 package hiddenrole
 
-// Keys used in the effect log to rebuild the board.
-//
-// There used to be camp and category here too: they were once part of kernel
-// state, so the seating effect had to record them separately. They are now
-// just two pieces of state on a player, and travel along with vars.
-
-const (
-	roleKey  = "role"
-	phaseKey = "phase"
-	varsKey  = "vars"
-)
-
 // newPlayerAddedEffect records a player taking a seat, along with the role's
 // initial state.
 //
 // It records vars rather than asking RoleSetup again during replay; see
 // Engine.seatPlayer for why.
 func newPlayerAddedEffect(id string, role RoleType, vars map[string]string) *Effect {
-	effect := NewEffect(EventPlayerAdded, "", id).
-		WithData(roleKey, role)
-	if len(vars) > 0 {
-		effect = effect.WithData(varsKey, copyVars(vars))
-	}
-	return effect
+	e := NewEffect(EventPlayerAdded, "", id)
+	e.Args = &EffectArgs{Role: role, Vars: copyVars(vars)}
+	return e
 }
 
 // newPhaseChangedEffect records a phase transition.
 func newPhaseChangedEffect(phase PhaseType) *Effect {
-	return NewEffect(EventPhaseChanged, "", "").
-		WithData(phaseKey, phase)
+	e := NewEffect(EventPhaseChanged, "", "")
+	e.Args = &EffectArgs{Phase: phase}
+	return e
 }
 
 // newGameStartedEffect records the start of the game.
 func newGameStartedEffect(phase PhaseType) *Effect {
-	return NewEffect(EventGameStarted, "", "").
-		WithData(phaseKey, phase)
+	e := NewEffect(EventGameStarted, "", "")
+	e.Args = &EffectArgs{Phase: phase}
+	return e
 }
 
-// EffectLog returns the complete effect log since the game was created.
+// newGameEndedEffect records the end of the game and who won.
+func newGameEndedEffect(winner Camp) *Effect {
+	e := NewEffect(EventGameEnded, "", "")
+	e.Args = &EffectArgs{Winner: winner}
+	return e
+}
+
+// LogVersion is the version of the effect-log format.
 //
-// This architecture already produces a clean event stream -- a Resolver is a
-// pure function, and every state change goes through the single write point
-// of applyEffect -- so accumulating it is nearly free, and it gives replays,
-// post-game analysis and "what actually happened on night three"
-// investigations something to stand on.
+// It moves only when the **meaning** of an existing entry changes, which is a
+// far rarer event than a change to the shape of the board -- adding a state
+// field does not touch it, because a log records what happened rather than
+// what the board looks like. That difference is the whole reason the log,
+// not the snapshot, is the durable record.
+const LogVersion = 1
+
+// GameLog is the durable record of everything that has happened in one game.
 //
-// The returned slice is a copy, but the *Effect values inside it are the
-// engine's own objects; do not modify them.
+// **This is the source of truth.** A Snapshot is derived from it and can
+// always be thrown away and rebuilt (see RestoreEngine, which does exactly
+// that when it cannot read a snapshot's board). That is the ordinary shape of
+// an event-sourced system, and this package did not use to have it: the log
+// carried `map[string]interface{}` payloads that degraded on a JSON round
+// trip, so it was explicitly documented as an in-process debugging aid and
+// the snapshot was the only thing that could be written down. The
+// architecture paid event sourcing's full price and collected half its value.
+//
+// It is plain data. json.Marshal it, put it wherever you keep things, and
+// hand it back to ReplayEngine.
+type GameLog struct {
+	Version int `json:"version"`
+
+	// Effects is every effect the engine has recorded, in the order they
+	// happened. Append-only.
+	Effects []*Effect `json:"effects"`
+}
+
+// Log exports the complete effect log as a durable record.
+//
+// The returned value is a deep copy and shares nothing with the engine: it is
+// safe to serialise, hand to another goroutine, or hold indefinitely.
 //
 // # Division of labour with Snapshot
 //
-// The effect log is history; a snapshot is state. For persistence use
-// Snapshot: Effect.Data is a map[string]interface{} whose types degrade on a
-// JSON round trip, and the effect log is designed for in-process replay and
-// auditing, not as a storage format.
-func (e *Engine) EffectLog() []*Effect {
+// The log is history and is authoritative; a snapshot is the board at one
+// moment, derived from the log, and exists so that a restore does not have to
+// replay from the beginning. Persist the log. Persist a snapshot too if
+// replays are getting long, and treat it as a cache.
+func (e *Engine) Log() *GameLog {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+	return e.logLocked()
+}
 
-	out := make([]*Effect, len(e.effectLog))
+// logLocked builds the durable record. The caller must hold e.mu.
+func (e *Engine) logLocked() *GameLog {
+	out := &GameLog{
+		Version: LogVersion,
+		Effects: make([]*Effect, len(e.effectLog)),
+	}
 	for i, ef := range e.effectLog {
-		out[i] = ef.clone()
+		out.Effects[i] = ef.clone()
 	}
 	return out
 }
 
-// ReplayEngine rebuilds an engine from an effect log.
+// EffectLog returns the complete effect log since the game was created.
 //
-// config must match the one used during recording -- the effect log records
-// what happened, not the rules.
+// A convenience over Log() for callers that only want to walk the entries --
+// post-game analysis, "what actually happened on night three". Both return
+// deep copies; use Log when you are going to write it down, because that
+// carries the format version with it.
+func (e *Engine) EffectLog() []*Effect {
+	return e.Log().Effects
+}
+
+// ReplayEngine rebuilds an engine from a durable log.
 //
-// The rebuilt engine matches the recorded one in player state, phase and
-// round; but skills submitted in the current phase and not yet resolved are
-// not in the effect log (they have not become effects yet), so use Snapshot
-// if you need those.
+// config must match the one used during recording -- a log records what
+// happened, not the rules.
+//
+// The rebuilt engine matches the recorded one in player state, phase, round
+// and history; skills submitted in the current phase and not yet resolved are
+// not in the log (they have not become effects yet), so use Snapshot if you
+// need those in flight.
 //
 // Resolvers for custom roles must be passed through opts, for the same reason
 // as with RestoreEngine. Initial state need not be: it is recorded on the
-// seating entry of the effect log (see Engine.seatPlayer).
-func ReplayEngine(config *Config, log []*Effect, opts ...EngineOption) (*Engine, error) {
+// seating entry of the log (see Engine.seatPlayer).
+func ReplayEngine(config *Config, log *GameLog, opts ...EngineOption) (*Engine, error) {
+	if log == nil {
+		return nil, WrapError(CodeInvalidEffectLog, "log must not be nil")
+	}
+	if log.Version != LogVersion {
+		return nil, WrapError(CodeInvalidEffectLog,
+			"unsupported log version %d (expected %d)", log.Version, LogVersion)
+	}
+
 	engine, err := NewEngine(config, opts...)
 	if err != nil {
 		return nil, err
@@ -92,37 +135,50 @@ func ReplayEngine(config *Config, log []*Effect, opts ...EngineOption) (*Engine,
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 
-	for i, effect := range log {
-		if effect == nil {
-			return nil, WrapError(CodeInvalidEffectLog,
-				"effect log contains a nil entry at index %d", i)
-		}
-		if err := engine.replayEffect(effect); err != nil {
-			return nil, err
-		}
+	if err := engine.replayLocked(log.Effects); err != nil {
+		return nil, err
 	}
-
-	engine.recordEffects(log...)
-
 	return engine, nil
 }
+
+// replayLocked folds a sequence of recorded effects back into the engine and
+// adopts them as its history. The caller must hold e.mu.
+func (e *Engine) replayLocked(effects []*Effect) error {
+	for i, effect := range effects {
+		if effect == nil {
+			return WrapError(CodeInvalidEffectLog,
+				"effect log contains a nil entry at index %d", i)
+		}
+		if err := e.replayEffect(effect); err != nil {
+			return err
+		}
+	}
+	e.recordEffects(effects...)
+	return nil
+}
+
+// replayPhase reads the phase a bookkeeping entry points at.
+func (e *Effect) replayPhase() (PhaseType, bool) { return phaseOf(e) }
 
 // replayEffect replays one effect.
 func (e *Engine) replayEffect(effect *Effect) error {
 	switch effect.Type {
 	case EventPlayerAdded:
-		role, _ := effect.Data[roleKey].(RoleType)
+		var role RoleType
+		var vars map[string]string
+		if effect.Args != nil {
+			role, vars = effect.Args.Role, effect.Args.Vars
+		}
 		// Seating has to hand out the initial state too. Without this the
 		// replayed witch holds no potions and the wolves belong to no camp,
 		// and the divergence only surfaces when a potion is used or victory is
 		// checked.
-		vars, _ := effect.Data[varsKey].(map[string]string)
 		if err := e.seatPlayer(effect.TargetID, role, vars); err != nil {
 			return err
 		}
 
 	case EventGameStarted:
-		phase, ok := effect.Data[phaseKey].(PhaseType)
+		phase, ok := effect.replayPhase()
 		if !ok {
 			return WrapError(CodeInvalidEffectLog,
 				"game started effect carries no phase")
@@ -130,7 +186,7 @@ func (e *Engine) replayEffect(effect *Effect) error {
 		e.state.startAt(phase)
 
 	case EventPhaseChanged:
-		phase, ok := effect.Data[phaseKey].(PhaseType)
+		phase, ok := effect.replayPhase()
 		if !ok {
 			return WrapError(CodeInvalidEffectLog,
 				"phase changed effect carries no phase")
@@ -140,20 +196,12 @@ func (e *Engine) replayEffect(effect *Effect) error {
 		// that should have been consumed and diverges from the original on the
 		// very next step.
 		//
-		// The round boundary is declared by the phase **just left**, so read
-		// it before transitioning. Same rule as normal progression: it must
-		// not fall while a detour is still pending, or it would wipe out the
-		// pending queue that lives in the round context.
-		endsRound := e.config.endsRound(e.state.Phase)
-		// The actor list is one-shot too, exactly as in normal progression.
-		// Without this the replayed engine carries the previous phase's list
-		// and diverges from the original on the next step -- which was missing
-		// here all along, only werewolf does not use SET_ACTORS, so no effect
-		// log had ever reached this line.
+		// The transition itself goes through the same enterPhase path as
+		// normal progression, so the entry and exit actions of every phase on
+		// the way -- compound phases included -- fire identically.
 		e.state.leavePhase()
 		settled := !e.state.hasPendingDetour()
-		e.state.nextPhase(phase, endsRound && settled,
-			settled && e.config.clearsRoundVars(phase))
+		e.transition(phase, settled)
 
 	case EventGameEnded:
 		// Ending also leaves the current phase -- on the normal path
@@ -161,18 +209,13 @@ func (e *Engine) replayEffect(effect *Effect) error {
 		// or not. Miss it and the replayed engine carries the last phase's
 		// actor list and an unconsumed detour, and diverges from the original.
 		e.state.leavePhase()
-		e.state.nextPhase(PhaseEnd, false, false) // the game ends; this is not a new round
-		// The winner travels in the effect log. Who won was decided by the
+		e.transition(PhaseEnd, false) // the game ends; this is not a new round
+		// The winner travels in the log. Who won was decided by the
 		// VictoryChecker at the moment the game ended, and replay does not run
 		// the check again -- without reading it the replayed engine has
 		// Over=true and an empty Winner, and diverges from the original.
-		//
-		// This and the snapshot path were the same bug in two places. The
-		// previous round fixed only the snapshot one; this one was caught by
-		// the random-game invariants, which compare the replayed and original
-		// snapshots byte for byte.
-		if winner, ok := effect.Data[winnerKey].(Camp); ok {
-			e.winner = winner
+		if effect.Args != nil {
+			e.winner = effect.Args.Winner
 		}
 
 	default:

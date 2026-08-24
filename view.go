@@ -57,6 +57,16 @@ type GameView interface {
 
 	// Phase returns the current phase.
 	Phase() PhaseType
+
+	// InPhase reports whether the current phase is this phase, or sits
+	// inside it.
+	//
+	// It is how the rules ask about a **compound phase** (see
+	// PhaseConfig.Parent): a SpeechProvider wants "is it night", and had to
+	// ask "is the phase one of these four" -- a list that every new night
+	// phase silently invalidated. With no hierarchy declared it degrades to
+	// an equality test, which is the right answer for a flat configuration.
+	InPhase(phase PhaseType) bool
 }
 
 // stateView implements GameView.
@@ -65,10 +75,21 @@ type GameView interface {
 // implement the interface directly: the latter could be type-asserted back
 // into the mutable state object, which would be no constraint at all.
 type stateView struct {
-	s *gameState
+	s    *gameState
+	tree *phaseTree
 }
 
-func newStateView(s *gameState) GameView { return stateView{s: s} }
+// newStateView wraps state for handing to an extension point.
+//
+// The hierarchy travels with it because InPhase needs it: which compound
+// phases exist is configuration, not state, and a view that only carried
+// state could answer "which phase" but not "which group is it part of".
+func newStateView(s *gameState, tree *phaseTree) GameView {
+	if tree == nil {
+		tree = &phaseTree{}
+	}
+	return stateView{s: s, tree: tree}
+}
 
 func (v stateView) Player(id string) (PlayerInfo, bool) {
 	return v.s.PlayerInfo(id)
@@ -115,3 +136,7 @@ func (v stateView) Var(scope VarScope, key string) string {
 func (v stateView) Round() int { return v.s.currentRound() }
 
 func (v stateView) Phase() PhaseType { return v.s.currentPhase() }
+
+func (v stateView) InPhase(phase PhaseType) bool {
+	return v.tree.contains(phase, v.s.currentPhase())
+}

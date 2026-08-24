@@ -51,7 +51,7 @@ func TestValidate_RoundBoundaryRequiredOnlyWhenTheGraphLoops(t *testing.T) {
 			StartPhase: phaseA,
 			Phases: map[PhaseType]*PhaseConfig{
 				phaseA: {Type: phaseA, Steps: step, NextPhase: phaseB},
-				phaseB: {Type: phaseB, Steps: step, NextPhase: phaseA, EndsRound: true},
+				phaseB: {Type: phaseB, Steps: step, NextPhase: phaseA, OnExit: []PhaseAction{ActionAdvanceRound}},
 			},
 		}
 		if err := cfg.Validate(); err == nil {

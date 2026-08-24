@@ -1,18 +1,106 @@
 package hiddenrole
 
 import (
-	"encoding/json"
-	"fmt"
+	"sort"
+	"strconv"
 )
 
 // Effect describes one state change.
+//
+// # Why the payload is split in two
+//
+// An effect has to carry a payload, and the payload has to survive being
+// written down: the effect log is this engine's history, and history that
+// cannot be persisted is not history, it is a debugging aid (see GameLog).
+//
+// It used to be one `Data map[string]interface{}`, which bought a third-party
+// Resolver the freedom to attach anything at all, and cost the **entire
+// event stream its durability**: the values went in as PhaseType, Camp,
+// VarScope and []string, and came back out of a JSON round trip as strings
+// and float64s, so every `effect.Data[k].(PhaseType)` in the replay path
+// failed on any log that had ever been written down. The architecture paid
+// event sourcing's full price -- the purity constraint on resolvers, the
+// single write point, the determinism discipline -- and collected half its
+// value.
+//
+// The split follows the same principle EventType already uses: **the type is
+// open, the payload is closed.**
+//
+//	Args   the kernel's own primitives, a closed set of typed fields
+//	Data   the rules' own payload, strings only -- the same choice already
+//	       made for Var values, and for the same reason
+//
+// A rules package needing a number or a structure encodes it (strconv, or a
+// JSON string). That is a real cost, paid once at the edge, in exchange for
+// an effect log that round-trips byte for byte.
 type Effect struct {
-	Type     EventType
-	SourceID string                 // where it came from (player ID)
-	TargetID string                 // what it is aimed at (player ID)
-	Data     map[string]interface{} // extra payload
-	Canceled bool                   // vetoed, e.g. by a protection
-	Reason   string                 // why it was vetoed
+	Type     EventType `json:"type"`
+	SourceID string    `json:"source_id,omitempty"` // where it came from (player ID)
+	TargetID string    `json:"target_id,omitempty"` // what it is aimed at (player ID)
+	Canceled bool      `json:"canceled,omitempty"`  // vetoed, e.g. by a protection
+	Reason   string    `json:"reason,omitempty"`    // why it was vetoed
+
+	// Data is the rules' own payload: their name for what happened, and
+	// whatever detail goes with it. The kernel never reads it.
+	Data map[string]string `json:"data,omitempty"`
+
+	// Args is the payload of the kernel's own effect types. Which of its
+	// fields carry meaning is decided by Type, and the constructors
+	// (NewSetAliveEffect and friends) are the only supported way to fill it
+	// in; nil for a rule event.
+	Args *EffectArgs `json:"args,omitempty"`
+}
+
+// EffectArgs is the closed payload of the kernel's own effects.
+//
+// One flat struct rather than a field per effect type: the set is closed and
+// small, the constructors are the only writers, and a flat shape serialises
+// to JSON that a person can read. Which fields matter for which type:
+//
+//	SET_ALIVE      Alive
+//	SET_VAR        Scope, Key, Value
+//	SET_ACTORS     Phase, Actors
+//	DETOUR         Phase
+//	GOTO_PHASE     Phase
+//	PLAYER_ADDED   Role, Vars
+//	PHASE_CHANGED  Phase
+//	GAME_STARTED   Phase
+//	GAME_ENDED     Winner
+type EffectArgs struct {
+	// Phase is the phase this effect points at.
+	Phase PhaseType `json:"phase,omitempty"`
+
+	// Alive is the value SET_ALIVE writes. It carries no omitempty on
+	// purpose: false is the interesting case, and omitting it would make
+	// every elimination read as an empty payload.
+	Alive bool `json:"alive"`
+
+	// Scope, Key and Value are what SET_VAR writes.
+	Scope VarScope `json:"scope,omitempty"`
+	Key   string   `json:"key,omitempty"`
+	Value string   `json:"value,omitempty"`
+
+	// Actors is the player list SET_ACTORS names.
+	Actors []string `json:"actors,omitempty"`
+
+	// Role and Vars are the seat PLAYER_ADDED records: which role, and what
+	// initial state it sat down with.
+	Role RoleType          `json:"role,omitempty"`
+	Vars map[string]string `json:"vars,omitempty"`
+
+	// Winner is who won, recorded on GAME_ENDED.
+	Winner Camp `json:"winner,omitempty"`
+}
+
+// clone deep-copies the payload, the slice and the map included.
+func (a *EffectArgs) clone() *EffectArgs {
+	if a == nil {
+		return nil
+	}
+	c := *a
+	c.Actors = append([]string(nil), a.Actors...)
+	c.Vars = copyVars(a.Vars)
+	return &c
 }
 
 // eventKind classifies a kernel event.
@@ -81,10 +169,6 @@ func isInternalEvent(t EventType) bool {
 	return kernelEvents[t] != kindRuleEvent
 }
 
-// detourPhaseKey is the key under which a detour effect records which phase
-// to visit.
-const detourPhaseKey = "detour_phase"
-
 // NewDetourEffect declares "for the sake of this player, take a trip through
 // that phase" (see Detour).
 //
@@ -98,21 +182,10 @@ const detourPhaseKey = "detour_phase"
 // rewrite of the next stop**, this one **files a debt** -- victory checks and
 // the round boundary all wait until the queue drains.
 func NewDetourEffect(playerID string, phase PhaseType) *Effect {
-	return NewEffect(EventDetour, playerID, "").
-		WithData(detourPhaseKey, phase)
+	e := NewEffect(EventDetour, playerID, "")
+	e.Args = &EffectArgs{Phase: phase}
+	return e
 }
-
-// winnerKey is the key under which a GAME_ENDED effect records the winner.
-//
-// Two places use it: it is written on production (endPhaseInternal) and read
-// back on replay (replayEffect). It is a constant rather than a literal in
-// both places -- those two have to be the same key, and a literal tells
-// nobody that.
-const winnerKey = "winner"
-
-// gotoPhaseKey is the key under which a next-phase override records its
-// destination.
-const gotoPhaseKey = "goto_phase"
 
 // NewGotoPhaseEffect declares "once this phase resolves, go to that phase".
 //
@@ -134,43 +207,18 @@ const gotoPhaseKey = "goto_phase"
 // and falls back to NextPhase: one malformed effect should not bring down a
 // whole game, but neither may it quietly jump somewhere nobody expected.
 func NewGotoPhaseEffect(phase PhaseType) *Effect {
-	return NewEffect(EventGotoPhase, "", "").WithData(gotoPhaseKey, phase)
+	e := NewEffect(EventGotoPhase, "", "")
+	e.Args = &EffectArgs{Phase: phase}
+	return e
 }
 
-// gotoPhase reads the destination out of an override effect.
-func (e *Effect) gotoPhase() (PhaseType, bool) {
-	v, ok := e.Data[gotoPhaseKey]
-	if !ok {
+// phaseOf reads the phase out of an effect that points at one.
+func phaseOf(e *Effect) (PhaseType, bool) {
+	if e.Args == nil || e.Args.Phase == PhaseUnspecified {
 		return PhaseUnspecified, false
 	}
-	p, ok := v.(PhaseType)
-	if !ok {
-		return PhaseUnspecified, false
-	}
-	return p, true
+	return e.Args.Phase, true
 }
-
-// detourPhase reads the destination out of a detour effect.
-func (e *Effect) detourPhase() (PhaseType, bool) {
-	v, ok := e.Data[detourPhaseKey]
-	if !ok {
-		return PhaseUnspecified, false
-	}
-	phase, ok := v.(PhaseType)
-	return phase, ok
-}
-
-// The three keys used to write custom state: scope, key, value.
-//
-// Each scope used to have its own set of key names (var_key / round_var_key /
-// player_round_var_key and so on) -- six constants describing one thing.
-const (
-	varScopeKey = "var_scope"
-	varKeyKey   = "var_key"
-	varValueKey = "var_value"
-
-	aliveKey = "alive"
-)
 
 // NewSetAliveEffect declares "set this player's alive flag to this value".
 //
@@ -185,29 +233,24 @@ const (
 // to actually change the state. Two effects, two things -- the first for the
 // audience and the effect log, the second for the state machine.
 func NewSetAliveEffect(playerID string, alive bool) *Effect {
-	return NewEffect(EventSetAlive, "", playerID).
-		WithData(aliveKey, alive)
+	e := NewEffect(EventSetAlive, "", playerID)
+	e.Args = &EffectArgs{Alive: alive}
+	return e
 }
 
 // SetsAlive reports whether this effect changes the alive flag, and to what.
 //
 // An extension that wants to intercept a death needs it: the idiot surviving
-// an exile by flipping their card works by vetoing the lethal primitive.
-// Intercepting the primitive rather than the word "exile" makes it
-// **independent of the cause** -- one piece of code stops a wolf kill, a
-// poisoning, a gunshot and any third-party ruleset's way of dying, because
-// all of them end up here.
+// an exile by flipping their card works by replacing the lethal primitive
+// (see Interceptor). Intercepting the primitive rather than the word "exile"
+// makes it **independent of the cause** -- one piece of code stops a wolf
+// kill, a poisoning, a gunshot and any third-party ruleset's way of dying,
+// because all of them end up here.
 func (e *Effect) SetsAlive() (alive, ok bool) {
-	if e == nil || e.Type != EventSetAlive {
+	if e == nil || e.Type != EventSetAlive || e.Args == nil {
 		return false, false
 	}
-	return aliveOf(e)
-}
-
-// aliveOf reads the alive flag an effect intends to write.
-func aliveOf(e *Effect) (alive, ok bool) {
-	alive, ok = e.Data[aliveKey].(bool)
-	return alive, ok
+	return e.Args.Alive, true
 }
 
 // NewSetVarEffect declares "set this piece of custom state to this value", in
@@ -231,10 +274,9 @@ func aliveOf(e *Effect) (alive, ok bool) {
 //
 // Passing an empty value deletes the entry, identically in all four scopes.
 func NewSetVarEffect(scope VarScope, key, value string) *Effect {
-	return NewEffect(EventSetVar, "", scope.owner).
-		WithData(varScopeKey, scope).
-		WithData(varKeyKey, key).
-		WithData(varValueKey, value)
+	e := NewEffect(EventSetVar, "", scope.owner)
+	e.Args = &EffectArgs{Scope: scope, Key: key, Value: value}
+	return e
 }
 
 // SetsVar reports whether this effect writes a piece of custom state, and if
@@ -245,26 +287,11 @@ func NewSetVarEffect(scope VarScope, key, value string) *Effect {
 // Type alone no longer distinguishes whole-game from this-round, or owned
 // from unowned -- read them from here.
 func (e *Effect) SetsVar() (scope VarScope, key, value string, ok bool) {
-	if e == nil || e.Type != EventSetVar {
+	if e == nil || e.Type != EventSetVar || e.Args == nil {
 		return VarScope{}, "", "", false
 	}
-	scope, key, value = varOf(e)
-	return scope, key, value, key != ""
+	return e.Args.Scope, e.Args.Key, e.Args.Value, e.Args.Key != ""
 }
-
-// varOf reads the scope, key and value out of an effect.
-func varOf(e *Effect) (scope VarScope, key, value string) {
-	scope, _ = e.Data[varScopeKey].(VarScope)
-	key, _ = e.Data[varKeyKey].(string)
-	value, _ = e.Data[varValueKey].(string)
-	return scope, key, value
-}
-
-// actorsPhaseKey / actorsListKey are the two keys in an actors effect.
-const (
-	actorsPhaseKey = "actors_phase"
-	actorsListKey  = "actors_list"
-)
 
 // NewSetActorsEffect declares "these players may act in the given phase".
 //
@@ -290,31 +317,32 @@ const (
 // Players in the list who do not exist are ignored; the list is stored sorted
 // by ID, which keeps the effect log deterministic.
 func NewSetActorsEffect(phase PhaseType, playerIDs ...string) *Effect {
-	return NewEffect(EventSetActors, "", "").
-		WithData(actorsPhaseKey, phase).
-		WithData(actorsListKey, append([]string(nil), playerIDs...))
+	e := NewEffect(EventSetActors, "", "")
+	e.Args = &EffectArgs{
+		Phase:  phase,
+		Actors: append([]string(nil), playerIDs...),
+	}
+	return e
 }
 
 // actorsOf reads the phase and the list out of an effect.
 func actorsOf(e *Effect) (PhaseType, []string, bool) {
-	p, ok := e.Data[actorsPhaseKey].(PhaseType)
-	if !ok {
+	if e.Args == nil || e.Args.Phase == PhaseUnspecified {
 		return PhaseUnspecified, nil, false
 	}
-	ids, ok := e.Data[actorsListKey].([]string)
-	if !ok {
-		return PhaseUnspecified, nil, false
-	}
-	return p, ids, true
+	return e.Args.Phase, e.Args.Actors, true
 }
 
-// NewEffect builds an effect.
+// NewEffect builds a rule event: the rules' own name for something that
+// happened.
+//
+// Attach detail with WithData. The kernel never reads it -- it goes to the
+// audience the rules choose, and into the effect log.
 func NewEffect(eventType EventType, sourceID, targetID string) *Effect {
 	return &Effect{
 		Type:     eventType,
 		SourceID: sourceID,
 		TargetID: targetID,
-		Data:     make(map[string]interface{}),
 	}
 }
 
@@ -324,21 +352,25 @@ func (e *Effect) Cancel(reason string) {
 	e.Reason = reason
 }
 
-// WithData attaches extra payload.
+// WithData attaches one piece of the rules' own payload.
 //
-// It builds Data in place when nil: Effect is an exported type with all
-// fields exported, constructing one as a literal is the documented thing for
-// a third-party Resolver to do, and it should not run into an "assignment to
-// entry in nil map" here.
-func (e *Effect) WithData(key string, value interface{}) *Effect {
+// Values are strings. That is the same choice made for Var values, for the
+// same two reasons: an effect log has to survive being written down (see the
+// Effect type documentation), and a payload whose type is decided at runtime
+// cannot be read back without an assertion that may fail.
+//
+// It builds Data in place when nil, so constructing an Effect as a literal --
+// the documented thing for a third-party Resolver to do -- does not run into
+// an "assignment to entry in nil map" here.
+func (e *Effect) WithData(key, value string) *Effect {
 	if e.Data == nil {
-		e.Data = make(map[string]interface{}, 1)
+		e.Data = make(map[string]string, 1)
 	}
 	e.Data[key] = value
 	return e
 }
 
-// clone deep-copies one effect, Data included.
+// clone deep-copies one effect, the payload included.
 //
 // The effect log is this engine's history, and "history cannot be rewritten"
 // cannot rest on documentation alone: what EndPhase returned and what
@@ -347,25 +379,24 @@ func (e *Effect) WithData(key string, value interface{}) *Effect {
 // which is exported) rewrote the history, and a replay would rebuild a
 // different game from it.
 //
-// Copies now go into the log and copies come out, so neither side shares an
-// object with the caller.
+// The copy has to reach **inside** the payload as well. It used to stop at
+// the top level of Data, so a composite value -- the actor list -- stayed
+// shared with the caller, and the promise held for scalar fields only.
 func (e *Effect) clone() *Effect {
 	if e == nil {
 		return nil
 	}
 	c := *e
-	if e.Data != nil {
-		c.Data = make(map[string]interface{}, len(e.Data))
-		for k, v := range e.Data {
-			c.Data[k] = v
-		}
-	}
+	c.Data = copyVars(e.Data)
+	c.Args = e.Args.clone()
 	return &c
 }
 
 // ToEvent converts an effect into an outward event.
 //
-// Data is flattened from map[string]interface{} to map[string]string;
+// The rules' payload is carried over as it stands, and the kernel's typed
+// payload is flattened alongside it under fixed keys, so that a caller
+// routing GAME_ENDED can read the winner without knowing about EffectArgs.
 // Canceled and Reason are carried over verbatim -- an action the rules vetoed
 // that lost its marker here would reach the caller looking exactly like one
 // that really happened.
@@ -374,40 +405,72 @@ func (e *Effect) ToEvent() *Event {
 		Type:     e.Type,
 		SourceID: e.SourceID,
 		TargetID: e.TargetID,
-		Data:     make(map[string]string),
+		Data:     make(map[string]string, len(e.Data)),
 		Canceled: e.Canceled,
 		Reason:   e.Reason,
 	}
-
-	// Flatten Data: interface{} -> string.
 	for k, v := range e.Data {
-		event.Data[k] = convertToString(v)
+		event.Data[k] = v
 	}
-
+	e.Args.flattenInto(event.Data)
 	return event
 }
 
-// convertToString renders an interface{} as a string.
-func convertToString(v interface{}) string {
-	switch val := v.(type) {
-	case string:
-		return val
-	case bool:
-		if val {
-			return "true"
-		}
-		return "false"
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return fmt.Sprintf("%d", val)
-	case float32, float64:
-		return fmt.Sprintf("%v", val)
-	case fmt.Stringer:
-		return val.String()
-	default:
-		// For a composite type, try JSON.
-		if data, err := json.Marshal(val); err == nil {
-			return string(data)
-		}
-		return fmt.Sprintf("%v", val)
+// The keys under which the kernel's typed payload appears in an outward
+// Event. Fixed names: a caller reading GAME_ENDED's winner should not have to
+// know how the payload is stored.
+const (
+	EventKeyPhase  = "phase"
+	EventKeyAlive  = "alive"
+	EventKeyScope  = "scope"
+	EventKeyVarKey = "var_key"
+	EventKeyValue  = "value"
+	EventKeyActors = "actors"
+	EventKeyRole   = "role"
+	EventKeyWinner = "winner"
+)
+
+// flattenInto writes the typed payload into an event's string map.
+//
+// Only fields that carry meaning are written. Actors is joined in the order
+// it is stored, which setActors keeps sorted, so the rendering is
+// deterministic.
+func (a *EffectArgs) flattenInto(data map[string]string) {
+	if a == nil {
+		return
 	}
+	if a.Phase != PhaseUnspecified {
+		data[EventKeyPhase] = string(a.Phase)
+	}
+	if a.Alive {
+		data[EventKeyAlive] = strconv.FormatBool(a.Alive)
+	}
+	if a.Key != "" {
+		data[EventKeyScope] = a.Scope.String()
+		data[EventKeyVarKey] = a.Key
+		data[EventKeyValue] = a.Value
+	}
+	if len(a.Actors) > 0 {
+		ids := append([]string(nil), a.Actors...)
+		sort.Strings(ids)
+		data[EventKeyActors] = joinIDs(ids)
+	}
+	if a.Role != RoleUnspecified {
+		data[EventKeyRole] = string(a.Role)
+	}
+	if a.Winner != CampUnspecified {
+		data[EventKeyWinner] = string(a.Winner)
+	}
+}
+
+// joinIDs renders a player list for an outward event.
+func joinIDs(ids []string) string {
+	out := ""
+	for i, id := range ids {
+		if i > 0 {
+			out += ","
+		}
+		out += id
+	}
+	return out
 }

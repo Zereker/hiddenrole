@@ -1,6 +1,7 @@
 package hiddenrole
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -221,9 +222,40 @@ func TestRestoreEngine_RejectsBadSnapshots(t *testing.T) {
 		}
 	})
 
-	t.Run("a version mismatch", func(t *testing.T) {
+	// A board this build cannot read is no longer the end of the story. The
+	// log that produced it is the authoritative half, so the restore falls
+	// back to replaying it -- which is what stops every bump of
+	// SnapshotVersion from abandoning a generation of saved games.
+	t.Run("a board version this build cannot read is rebuilt from the log", func(t *testing.T) {
+		future := *good
+		future.Version = SnapshotVersion + 1
+
+		restored, err := RestoreEngine(testConfig(), &future, withNoopResolvers()...)
+		if err != nil {
+			t.Fatalf("should have been rebuilt from the log, got %v", err)
+		}
+
+		// Rebuilt has to mean **the same board**, not merely "no error".
+		want, _ := json.Marshal(good)
+		got, _ := json.Marshal(restored.Snapshot())
+		if string(got) != string(want) {
+			t.Errorf("the rebuilt board differs:\n  want %s\n  got  %s", want, got)
+		}
+	})
+
+	t.Run("a version mismatch with no log to rebuild from", func(t *testing.T) {
 		bad := *good
 		bad.Version = SnapshotVersion + 1
+		bad.Log = nil
+		if _, err := RestoreEngine(testConfig(), &bad, withNoopResolvers()...); !HasCode(err, CodeInvalidSnapshot) {
+			t.Errorf("should be rejected as %v, got %v", CodeInvalidSnapshot, CodeOf(err))
+		}
+	})
+
+	t.Run("a log format this build cannot read", func(t *testing.T) {
+		bad := *good
+		bad.Version = SnapshotVersion + 1
+		bad.Log = &GameLog{Version: LogVersion + 1, Effects: good.Log.Effects}
 		if _, err := RestoreEngine(testConfig(), &bad, withNoopResolvers()...); !HasCode(err, CodeInvalidSnapshot) {
 			t.Errorf("should be rejected as %v, got %v", CodeInvalidSnapshot, CodeOf(err))
 		}

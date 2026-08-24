@@ -294,16 +294,44 @@ func checkSameBehaviour(t *testing.T, seed, step int, how string, a, b *hiddenro
 	}
 }
 
-// checkReplay is invariant B: replaying the effect log reaches the same board.
+// checkReplay is invariant B: replaying the log **after writing it down**
+// reaches the same board.
 //
-// It complements the snapshot invariant: a snapshot is state, an effect log
-// is history. Both can rebuild, and the results must agree.
+// It complements the snapshot invariant: a snapshot is state, a log is
+// history. Both can rebuild, and the results must agree.
+//
+// The round trip through JSON is the point, not a detail. The log is the
+// durable record -- the thing a restore falls back on when a snapshot cannot
+// be read -- so "it replays correctly" is only worth anything if it replays
+// correctly *after being written down and read back*. It used to carry
+// interface{} payloads, and this invariant, replaying the in-memory objects
+// directly, would have passed on a log that no storage could hold.
 func checkReplay(t *testing.T, seed, step int, e *hiddenrole.Engine, g Game) {
 	t.Helper()
 
-	replayed, err := hiddenrole.ReplayEngine(g.Config, e.EffectLog(), g.Options...)
+	raw, err := json.Marshal(e.Log())
+	if err != nil {
+		t.Fatalf("seed=%d step=%d Marshal(log): %v", seed, step, err)
+	}
+	var log hiddenrole.GameLog
+	if err := json.Unmarshal(raw, &log); err != nil {
+		t.Fatalf("seed=%d step=%d Unmarshal(log): %v", seed, step, err)
+	}
+
+	replayed, err := hiddenrole.ReplayEngine(g.Config, &log, g.Options...)
 	if err != nil {
 		t.Fatalf("seed=%d step=%d ReplayEngine: %v", seed, step, err)
+	}
+
+	// The rebuilt engine's own history must match what went in, or a second
+	// save/restore cycle would drift from the first.
+	again, err := json.Marshal(replayed.Log())
+	if err != nil {
+		t.Fatalf("seed=%d step=%d Marshal(replayed log): %v", seed, step, err)
+	}
+	if string(again) != string(raw) {
+		t.Fatalf("seed=%d step=%d log differs after a round trip:\n  original %s\n  replayed %s",
+			seed, step, raw, again)
 	}
 	if got, want := replayed.Status().Phase, e.Status().Phase; got != want {
 		t.Fatalf("seed=%d step=%d phase after replay = %v, original %v", seed, step, got, want)

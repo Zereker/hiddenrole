@@ -135,7 +135,7 @@ func (e *Engine) getMessageReceivers(senderID string) []string {
 	if e.speech == nil {
 		return nil
 	}
-	return e.speech.Receivers(senderID, newStateView(e.state))
+	return e.speech.Receivers(senderID, e.view())
 }
 
 // publishMessage publishes a message outside the lock.

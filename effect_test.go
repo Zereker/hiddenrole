@@ -1,29 +1,30 @@
 package hiddenrole
 
 import (
+	"encoding/json"
 	"testing"
 )
 
 func TestNewEffect(t *testing.T) {
-	effect := NewEffect(eventKill, "wolf", "victim")
+	effect := NewEffect(eventKill, "wolf1", "villager1")
 
 	if effect.Type != eventKill {
-		t.Errorf("expected Type=KILL, got %v", effect.Type)
+		t.Errorf("Type = %v, want %v", effect.Type, eventKill)
 	}
-	if effect.SourceID != "wolf" {
-		t.Errorf("expected SourceID=wolf, got %s", effect.SourceID)
+	if effect.SourceID != "wolf1" {
+		t.Errorf("SourceID = %v, want wolf1", effect.SourceID)
 	}
-	if effect.TargetID != "victim" {
-		t.Errorf("expected TargetID=victim, got %s", effect.TargetID)
+	if effect.TargetID != "villager1" {
+		t.Errorf("TargetID = %v, want villager1", effect.TargetID)
 	}
-	if effect.Data == nil {
-		t.Error("expected Data to be initialized")
+	// Data starts nil and is built by WithData on first use. An effect with
+	// no payload serialises without an empty object in it, which matters now
+	// that the log is the thing being written down.
+	if effect.Data != nil {
+		t.Errorf("Data = %v, want nil until something is attached", effect.Data)
 	}
 	if effect.Canceled {
-		t.Error("expected Canceled=false")
-	}
-	if effect.Reason != "" {
-		t.Errorf("expected empty Reason, got %s", effect.Reason)
+		t.Error("a new effect should not be cancelled")
 	}
 }
 
@@ -43,14 +44,14 @@ func TestEffect_Cancel(t *testing.T) {
 func TestEffect_WithData(t *testing.T) {
 	effect := NewEffect(eventCheck, "seer", "target")
 
-	result := effect.WithData("camp", campGood)
+	result := effect.WithData("camp", string(campGood))
 
 	// Verify method chaining
 	if result != effect {
 		t.Error("expected WithData to return same effect")
 	}
 
-	if effect.Data["camp"] != campGood {
+	if effect.Data["camp"] != string(campGood) {
 		t.Errorf("expected camp=GOOD, got %v", effect.Data["camp"])
 	}
 }
@@ -169,73 +170,149 @@ func TestEventType_AllTypes(t *testing.T) {
 
 func TestEffect_ToEvent_WithData(t *testing.T) {
 	effect := NewEffect(eventCheck, "seer", "target").
-		WithData("camp", campGood).
-		WithData("isGood", true).
-		WithData("votes", 5)
+		WithData("camp", string(campGood)).
+		WithData("is_good", "true").
+		WithData("votes", "5")
 
 	event := effect.ToEvent()
 
-	// Check that Data was converted correctly.
 	if event.Data == nil {
 		t.Fatal("expected Data to be initialized")
 	}
-
-	// A Camp should be rendered as a string (through the Stringer interface).
-	if event.Data["camp"] != "GOOD" {
-		t.Errorf("expected camp=GOOD, got %s", event.Data["camp"])
-	}
-
-	// A bool should become "true".
-	if event.Data["isGood"] != "true" {
-		t.Errorf("expected isGood=true, got %s", event.Data["isGood"])
-	}
-
-	// An int should become "5".
-	if event.Data["votes"] != "5" {
-		t.Errorf("expected votes=5, got %s", event.Data["votes"])
+	for key, want := range map[string]string{"camp": "GOOD", "is_good": "true", "votes": "5"} {
+		if got := event.Data[key]; got != want {
+			t.Errorf("Data[%q] = %q, want %q", key, got, want)
+		}
 	}
 }
 
-func TestEffect_ToEvent_WithComplexData(t *testing.T) {
-	voters := []string{"p1", "p2", "p3"}
-	effect := NewEffect(eventEliminate, "", "target").
-		WithData("voters", voters).
-		WithData("result", "tied")
-
-	event := effect.ToEvent()
-
-	// A string should pass through unchanged.
-	if event.Data["result"] != "tied" {
-		t.Errorf("expected result=tied, got %s", event.Data["result"])
+// TestEffect_ToEvent_CarriesKernelPayload: a caller routing GAME_ENDED must
+// be able to read the winner without knowing that EffectArgs exists.
+//
+// The kernel's typed payload and the rules' free-form one are stored apart,
+// and the split must not leak into what a handler receives -- an event is the
+// shape the outside world reads, and it has one map.
+func TestEffect_ToEvent_CarriesKernelPayload(t *testing.T) {
+	event := newGameEndedEffect(campGood).ToEvent()
+	if got := event.Data[EventKeyWinner]; got != string(campGood) {
+		t.Errorf("winner in the event = %q, want %q", got, campGood)
 	}
 
-	// A slice should be JSON-encoded.
-	if event.Data["voters"] != `["p1","p2","p3"]` {
-		t.Errorf("expected voters=[\"p1\",\"p2\",\"p3\"], got %s", event.Data["voters"])
+	event = NewSetActorsEffect(phaseVote, "p2", "p1").ToEvent()
+	if got := event.Data[EventKeyActors]; got != "p1,p2" {
+		t.Errorf("actors in the event = %q, want p1,p2 (sorted)", got)
 	}
 }
 
-func TestConvertToString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    interface{}
-		expected string
+// TestEffect_SurvivesBeingWrittenDown is the property the whole payload split
+// exists for.
+//
+// The effect log is the durable record, and a record that cannot be written
+// down and read back is not a record. Every kernel primitive is round-tripped
+// through JSON here and has to come back **identical** -- byte for byte, and
+// through the typed accessors, since those are what the replay path uses.
+//
+// This is the test that could not have been written before: the payload was
+// a map[string]interface{}, so a PhaseType went in and a string came back,
+// and every `Data[k].(PhaseType)` in the replay path failed on any log that
+// had ever touched storage.
+func TestEffect_SurvivesBeingWrittenDown(t *testing.T) {
+	cases := []struct {
+		name   string
+		effect *Effect
+		check  func(t *testing.T, back *Effect)
 	}{
-		{"string", "hello", "hello"},
-		{"bool true", true, "true"},
-		{"bool false", false, "false"},
-		{"int", 42, "42"},
-		{"int64", int64(100), "100"},
-		{"float64", 3.14, "3.14"},
-		{"slice", []string{"a", "b"}, `["a","b"]`},
-		{"map", map[string]int{"x": 1}, `{"x":1}`},
+		{
+			name:   "SET_ALIVE false",
+			effect: NewSetAliveEffect("p1", false),
+			check: func(t *testing.T, back *Effect) {
+				alive, ok := back.SetsAlive()
+				if !ok || alive {
+					t.Errorf("SetsAlive() = (%v, %v), want (false, true)", alive, ok)
+				}
+			},
+		},
+		{
+			name:   "SET_VAR in a per-player round scope",
+			effect: NewSetVarEffect(ScopeRound.Of("p1"), "guarded", VarPresent),
+			check: func(t *testing.T, back *Effect) {
+				scope, key, value, ok := back.SetsVar()
+				if !ok || key != "guarded" || value != VarPresent {
+					t.Fatalf("SetsVar() = (%v, %q, %q, %v)", scope, key, value, ok)
+				}
+				// The cell matters most: the wrong one silently files a
+				// round-scoped write under whole-game storage.
+				if scope != ScopeRound.Of("p1") {
+					t.Errorf("scope = %v, want %v", scope, ScopeRound.Of("p1"))
+				}
+			},
+		},
+		{
+			name:   "SET_ACTORS",
+			effect: NewSetActorsEffect(phaseVote, "p1", "p2"),
+			check: func(t *testing.T, back *Effect) {
+				phase, ids, ok := actorsOf(back)
+				if !ok || phase != phaseVote || len(ids) != 2 || ids[0] != "p1" || ids[1] != "p2" {
+					t.Errorf("actorsOf() = (%v, %v, %v)", phase, ids, ok)
+				}
+			},
+		},
+		{
+			name:   "DETOUR",
+			effect: NewDetourEffect("p1", phaseNightHunter),
+			check: func(t *testing.T, back *Effect) {
+				if phase, ok := phaseOf(back); !ok || phase != phaseNightHunter {
+					t.Errorf("phaseOf() = (%v, %v)", phase, ok)
+				}
+			},
+		},
+		{
+			name:   "GAME_ENDED",
+			effect: newGameEndedEffect(campGood),
+			check: func(t *testing.T, back *Effect) {
+				if back.Args == nil || back.Args.Winner != campGood {
+					t.Errorf("winner = %v, want %v", back.Args, campGood)
+				}
+			},
+		},
+		{
+			name:   "PLAYER_ADDED with seat state",
+			effect: newPlayerAddedEffect("p1", roleWitch, map[string]string{"antidote": "1"}),
+			check: func(t *testing.T, back *Effect) {
+				if back.Args == nil || back.Args.Role != roleWitch || back.Args.Vars["antidote"] != "1" {
+					t.Errorf("seat state did not survive: %+v", back.Args)
+				}
+			},
+		},
+		{
+			name:   "a rule event with its own payload",
+			effect: NewEffect(eventKill, "wolf", "victim").WithData("reason", "night"),
+			check: func(t *testing.T, back *Effect) {
+				if back.Data["reason"] != "night" {
+					t.Errorf("rule payload did not survive: %v", back.Data)
+				}
+			},
+		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := convertToString(tt.input)
-			if result != tt.expected {
-				t.Errorf("expected %s, got %s", tt.expected, result)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(tc.effect)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			var back Effect
+			if err := json.Unmarshal(raw, &back); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			tc.check(t, &back)
+
+			again, err := json.Marshal(&back)
+			if err != nil {
+				t.Fatalf("Marshal again: %v", err)
+			}
+			if string(again) != string(raw) {
+				t.Errorf("a second round trip differs:\n  first  %s\n  second %s", raw, again)
 			}
 		})
 	}

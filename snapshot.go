@@ -4,20 +4,21 @@ import (
 	"sort"
 )
 
-// SnapshotVersion is the version of the current snapshot format.
+// SnapshotVersion is the version of the board section's format.
 //
-// It is bumped on every change to the snapshot structure that is not
-// backwards compatible. RestoreEngine rejects a version it does not
-// recognise, so that old data is never read through a new structure into a
-// board that looks fine and is in fact scrambled.
+// It is bumped on every change to that structure that is not backwards
+// compatible. RestoreEngine will not read an unrecognised board, so old data
+// is never poured through a new structure into something that looks fine and
+// is in fact scrambled.
 //
-// The mechanism had a hole: changing the structure and **forgetting** to bump
-// raised no alarm anywhere -- which is exactly what the version number is
-// meant to prevent. There is now a golden test in the rules package
-// (TestSnapshot_ShapeIsPinnedToVersion) pinning the serialised shape; adding,
-// removing or renaming a field turns it red, and the bump decision is made
-// once it is.
-const SnapshotVersion = 13
+// **A bump is no longer a cliff.** It used to be: the board was the only
+// thing that could be written down, so the day this number moved, every
+// saved game became unreadable -- and it has moved thirteen times. A
+// snapshot now carries the log that produced it, and a board this version
+// cannot read is rebuilt by replaying that log instead (see RestoreEngine).
+// The version stops being "which saves we abandon" and becomes "which of the
+// two paths we can take".
+const SnapshotVersion = 14
 
 // Snapshot is the engine's complete serialisable state.
 //
@@ -43,6 +44,20 @@ const SnapshotVersion = 13
 // needed a version bump.
 type Snapshot struct {
 	Version int `json:"version"`
+
+	// Log is the durable record the board below was produced by.
+	//
+	// It is what makes the rest of this structure a **cache**: everything
+	// after this field can be recomputed by replaying it, which is what
+	// RestoreEngine falls back on when Version is one it cannot read. Drop it
+	// and the snapshot still restores today, but it loses both its history
+	// and its way through the next format change -- so drop it only if you
+	// are storing the log separately.
+	//
+	// It carries its own version, because the two move on different beats: a
+	// log records what happened and changes shape almost never, while the
+	// board gains and loses fields with every refactor.
+	Log *GameLog `json:"log,omitempty"`
 
 	Phase PhaseType `json:"phase"`
 	Round int       `json:"round"`
@@ -130,6 +145,7 @@ func (e *Engine) Snapshot() *Snapshot {
 
 	snap := &Snapshot{
 		Version:      SnapshotVersion,
+		Log:          e.logLocked(),
 		Phase:        e.state.Phase,
 		Round:        e.state.Round,
 		Vars:         copyVars(e.state.Vars),
@@ -155,25 +171,54 @@ func (e *Engine) Snapshot() *Snapshot {
 
 // RestoreEngine rebuilds an engine from a snapshot.
 //
-// A nil config means the default configuration. **The rules configuration
-// supplied on restore must match the one in force when the snapshot was
-// taken** -- a snapshot records the board, not the rules, and restoring under
-// a different configuration gives you a game whose rules changed halfway
-// through.
+// **The rules configuration supplied on restore must match the one in force
+// when the snapshot was taken** -- a snapshot records the board, not the
+// rules, and restoring under a different configuration gives you a game whose
+// rules changed halfway through.
 //
 // Resolvers for custom roles must be passed through opts (WithResolver).
 // Omitting one makes that phase's skills be silently dropped, so resolver
 // validation runs here and a missing one is an outright error.
 //
-// Errors: a nil snapshot; an unsupported version; an empty or duplicate
-// player ID; a phase not present in the config; a phase with no resolver.
+// # Two paths
+//
+// A snapshot is a board plus the log that produced it, and the log is the
+// authoritative half:
+//
+//	Version recognised    read the board directly, and adopt the log as history
+//	Version not recognised   ignore the board and replay the log instead
+//
+// The second path is what a format change costs now. Before the log was
+// durable there was no second path: an unrecognised version was rejected, and
+// since the number had moved thirteen times, thirteen sets of saved games had
+// been abandoned. A board is derived data, and derived data does not need a
+// migration -- it needs to be thrown away and recomputed.
+//
+// The second path costs one thing: **skills submitted in the current phase
+// and not yet resolved are lost.** They have not become effects, so they were
+// never in the log, and only the board section holds them. A game rebuilt
+// this way resumes at the start of its current phase rather than mid-phase,
+// which is the right trade against not being restorable at all -- but it is a
+// difference, and a caller upgrading across a format change should expect it.
+//
+// Errors: a nil snapshot; a version this build cannot read *and* no usable
+// log to rebuild from; an empty or duplicate player ID; a phase not present
+// in the config; a phase with no resolver.
 func RestoreEngine(config *Config, snap *Snapshot, opts ...EngineOption) (*Engine, error) {
 	if snap == nil {
 		return nil, ErrNilSnapshot
 	}
-	if snap.Version != SnapshotVersion {
+
+	// Decide which of the two paths is even available before building
+	// anything. A snapshot this build can neither read nor rebuild is a
+	// cheaper and more specific complaint than whatever the configuration
+	// turns out to be missing, and reporting it first is what tells the
+	// caller their stored data is the problem.
+	rebuild := snap.Version != SnapshotVersion
+	if rebuild && (snap.Log == nil || snap.Log.Version != LogVersion) {
 		return nil, WrapError(CodeInvalidSnapshot,
-			"unsupported snapshot version %d (expected %d)", snap.Version, SnapshotVersion)
+			"unsupported snapshot version %d (expected %d), and no log to rebuild from",
+			snap.Version, SnapshotVersion)
 	}
 
 	engine, err := NewEngine(config, opts...)
@@ -194,22 +239,49 @@ func RestoreEngine(config *Config, snap *Snapshot, opts ...EngineOption) (*Engin
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 
-	if err := engine.restorePhase(snap.Phase); err != nil {
-		return nil, err
-	}
-	if err := engine.restorePlayers(snap.Players); err != nil {
-		return nil, err
-	}
-	if err := engine.restorePendingUses(snap.PendingUses); err != nil {
-		return nil, err
+	if rebuild {
+		engine.logger.Warn("snapshot board is of an unreadable version, rebuilding from the log",
+			logField("snapshot_version", snap.Version),
+			logField("supported_version", SnapshotVersion))
+		if err := engine.replayLocked(snap.Log.Effects); err != nil {
+			return nil, err
+		}
+		return engine, nil
 	}
 
-	engine.state.Vars = copyVars(snap.Vars)
-	engine.state.Actors = copyActors(snap.Actors)
-	engine.winner = snap.Winner
-	engine.state.restoreProgress(snap.Phase, snap.Round, snap.RoundContext)
-
+	if err := engine.restoreBoard(snap); err != nil {
+		return nil, err
+	}
 	return engine, nil
+}
+
+// restoreBoard reads the board section straight in, and adopts the log that
+// came with it as this engine's history. The caller must hold e.mu.
+//
+// Adopting rather than replaying is the whole point of keeping a board: the
+// two are equivalent, and reading the board is what makes a restore cheap.
+// Invariant B in enginetest is what licenses the shortcut -- it asserts on
+// every step of every random game that the two paths land on the same board.
+func (e *Engine) restoreBoard(snap *Snapshot) error {
+	if err := e.restorePhase(snap.Phase); err != nil {
+		return err
+	}
+	if err := e.restorePlayers(snap.Players); err != nil {
+		return err
+	}
+	if err := e.restorePendingUses(snap.PendingUses); err != nil {
+		return err
+	}
+
+	e.state.Vars = copyVars(snap.Vars)
+	e.state.Actors = copyActors(snap.Actors)
+	e.winner = snap.Winner
+	e.state.restoreProgress(snap.Phase, snap.Round, snap.RoundContext)
+
+	if snap.Log != nil {
+		e.recordEffects(snap.Log.Effects...)
+	}
+	return nil
 }
 
 // restorePhase checks that the snapshot's phase exists in the configuration.

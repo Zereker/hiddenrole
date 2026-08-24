@@ -1,3 +1,5 @@
+const ActionAdvanceRound
+const ActionClearRoundVars
 const CampUnspecified
 const CodeGameAlreadyStarted
 const CodeGameEnded
@@ -22,12 +24,22 @@ const EventDetour
 const EventGameEnded
 const EventGameStarted
 const EventGotoPhase
+const EventKeyActors
+const EventKeyAlive
+const EventKeyPhase
+const EventKeyRole
+const EventKeyScope
+const EventKeyValue
+const EventKeyVarKey
+const EventKeyWinner
 const EventPhaseChanged
 const EventPlayerAdded
 const EventSetActors
 const EventSetAlive
 const EventSetVar
 const EventUnspecified
+const LogVersion
+const MaxPendingUses
 const PhaseEnd
 const PhaseStart
 const PhaseUnspecified
@@ -50,11 +62,12 @@ func NewGotoPhaseEffect(PhaseType) *Effect
 func NewSetActorsEffect(PhaseType, ...string) *Effect
 func NewSetAliveEffect(string, bool) *Effect
 func NewSetVarEffect(VarScope, string, string) *Effect
-func ReplayEngine(*Config, []*Effect, ...EngineOption) (*Engine, error)
+func ReplayEngine(*Config, *GameLog, ...EngineOption) (*Engine, error)
 func RestoreEngine(*Config, *Snapshot, ...EngineOption) (*Engine, error)
 func Seat(string, RoleType, bool, ...string) PlayerInfo
 func WithAudience(AudienceProvider) EngineOption
 func WithGameSetup(GameSetup) EngineOption
+func WithInterceptor(Interceptor) EngineOption
 func WithLogger(Logger) EngineOption
 func WithResolver(PhaseType, Resolver) EngineOption
 func WithRoleInfo(RoleType, RoleInfoProvider) EngineOption
@@ -69,11 +82,13 @@ iface GameSetup.Setup(GameView) []*Effect
 iface GameView.AlivePlayerIDsByRole(RoleType) []string
 iface GameView.AlivePlayers() []PlayerInfo
 iface GameView.AllPlayers() []PlayerInfo
+iface GameView.InPhase(PhaseType) bool
 iface GameView.Phase() PhaseType
 iface GameView.Player(string) (PlayerInfo, bool)
 iface GameView.Round() int
 iface GameView.RoundContext() RoundContext
 iface GameView.Var(VarScope, string) string
+iface Interceptor.Intercept(*Effect, GameView) []*Effect
 iface Logger.Debug(string, ...Field)
 iface Logger.Error(string, ...Field)
 iface Logger.Info(string, ...Field)
@@ -96,7 +111,7 @@ method Effect.Cancel(string)
 method Effect.SetsAlive() (bool, bool)
 method Effect.SetsVar() (VarScope, string, string, bool)
 method Effect.ToEvent() *Event
-method Effect.WithData(string, interface{}) *Effect
+method Effect.WithData(string, string) *Effect
 method Engine.AddPlayer(string, RoleType) error
 method Engine.AlivePlayerIDs() []string
 method Engine.AllowedSkills(string) []SkillType
@@ -104,6 +119,7 @@ method Engine.Apply(...*Effect) []*Effect
 method Engine.AudienceOf(*Event) ([]string, bool)
 method Engine.EffectLog() []*Effect
 method Engine.EndPhase() ([]*Effect, error)
+method Engine.Log() *GameLog
 method Engine.MessageReceivers(string) []string
 method Engine.OnEvent(EventHandler)
 method Engine.OnMessage(MessageHandler)
@@ -125,6 +141,7 @@ method EventType.String() string
 method GameError.Error() string
 method GameError.Unwrap() error
 method GameSetupFunc.Setup(GameView) []*Effect
+method InterceptorFunc.Intercept(*Effect, GameView) []*Effect
 method PhaseInfo.GodAnnouncementStep() *PhaseStep
 method PhaseInfo.NeedsGodAnnouncement() bool
 method PhaseInfo.PlayerActionSteps() []PhaseStep
@@ -137,8 +154,10 @@ method SkillType.String() string
 method SkillUse.Target() string
 method SpeechFunc.Receivers(string, GameView) []string
 method TeammateFunc.Teammates(string, GameView) []string
+method VarScope.MarshalJSON() ([]byte, error)
 method VarScope.Of(string) VarScope
 method VarScope.String() string
+method VarScope.UnmarshalJSON([]byte) error
 method VictoryFunc.CheckVictory(GameView) (bool, Camp)
 type AudienceFunc func(*Event, GameView) ([]string, bool)
 type AudienceProvider
@@ -148,6 +167,7 @@ type Config
 type Detour
 type DetourSnapshot
 type Effect
+type EffectArgs
 type Engine
 type EngineOption func(*Engine) error
 type ErrorCode
@@ -156,13 +176,17 @@ type EventHandler func(*Event)
 type EventType
 type Field
 type GameError
+type GameLog
 type GameSetup
 type GameSetupFunc func(GameView) []*Effect
 type GameView
+type Interceptor
+type InterceptorFunc func(*Effect, GameView) []*Effect
 type Logger
 type Message
 type MessageHandler func(*Message, []string)
 type PendingAction
+type PhaseAction
 type PhaseConfig
 type PhaseInfo
 type PhaseReadiness

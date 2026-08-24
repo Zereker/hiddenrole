@@ -56,6 +56,10 @@ type Engine struct {
 	// checker afterwards.
 	winner Camp
 
+	// interceptors stand between an effect and the write point, in
+	// registration order (see interceptor.go).
+	interceptors []Interceptor
+
 	// The skill uses collected in the current phase.
 	pendingUses []*SkillUse
 
@@ -114,7 +118,7 @@ func NewEngine(config *Config, opts ...EngineOption) (*Engine, error) {
 func MustNewEngine(config *Config, opts ...EngineOption) *Engine {
 	engine, err := NewEngine(config, opts...)
 	if err != nil {
-		panic("werewolf: invalid game config: " + err.Error())
+		panic("hiddenrole: invalid game config: " + err.Error())
 	}
 	return engine
 }
@@ -207,7 +211,7 @@ func (e *Engine) startLocked() (*Effect, []EventHandler, error) {
 	// enough, and it incidentally covers a case the old check missed (2
 	// wolves against 2 villagers in wipe-out mode, where the wolves win on
 	// the first resolution).
-	if over, winner := e.victory.CheckVictory(newStateView(e.state)); over {
+	if over, winner := e.victory.CheckVictory(e.view()); over {
 		return nil, nil, WrapError(CodeInvalidBoard,
 			"board is already decided before the game starts: winner=%v", winner)
 	}
@@ -231,7 +235,7 @@ func (e *Engine) startLocked() (*Effect, []EventHandler, error) {
 	// be replayed. It runs after GAME_STARTED so that the effect log reads in
 	// the order things happened.
 	if e.gameSetup != nil {
-		setupEffects, _ := e.applyEffects(e.gameSetup.Setup(newStateView(e.state)))
+		setupEffects, _ := e.applyEffects(e.gameSetup.Setup(e.view()))
 		e.recordEffects(setupEffects...)
 	}
 	e.logger.Info("game started", roundField(1), phaseField(start))
@@ -241,8 +245,23 @@ func (e *Engine) startLocked() (*Effect, []EventHandler, error) {
 
 // SubmitSkillUse submits one use of a skill.
 func (e *Engine) SubmitSkillUse(use *SkillUse) error {
+	// A host deserialising a submission off the wire can hand over a nil, and
+	// the kernel already declines to bring the game down for a nil effect
+	// arriving from a Resolver. The same standard applies on this side.
+	if use == nil {
+		return WrapError(CodeInvalidPlayerID, "skill use must not be nil")
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// One player cannot make the engine allocate without bound. How a
+	// Resolver treats repeated submissions is the rules' business; how much
+	// memory the kernel will hold on their behalf is the kernel's.
+	if len(e.pendingUses) >= MaxPendingUses {
+		return WrapError(CodeSkillNotAllowed,
+			"too many unresolved submissions in this phase (limit %d)", MaxPendingUses)
+	}
 
 	// Validate the submission.
 	if err := e.phase.validateSkillUse(use, e.state); err != nil {
@@ -253,10 +272,23 @@ func (e *Engine) SubmitSkillUse(use *SkillUse) error {
 		return err
 	}
 
-	// Queue it for this phase's resolution.
-	use.Phase = e.state.Phase
-	use.Round = e.state.Round
-	e.pendingUses = append(e.pendingUses, use)
+	// Queue a **copy** for this phase's resolution.
+	//
+	// The caller still holds their own pointer after this returns. Storing it
+	// would let them rewrite the submission after it had been validated --
+	// submit a PROTECT, then set Skill to KILL -- and the Resolver would be
+	// handed something that never passed validation. Snapshot and
+	// restorePendingUses already copy defensively; this was the one entry
+	// point that did not.
+	queued := &SkillUse{
+		PlayerID: use.PlayerID,
+		Skill:    use.Skill,
+		Targets:  append([]string(nil), use.Targets...),
+		Phase:    e.state.Phase,
+		Round:    e.state.Round,
+	}
+	use.Phase, use.Round = queued.Phase, queued.Round
+	e.pendingUses = append(e.pendingUses, queued)
 
 	e.logger.Debug("skill submitted",
 		playerField(use.PlayerID),
@@ -318,7 +350,7 @@ func (e *Engine) advancePhase() (phaseOutcome, error) {
 
 	// 1. Resolve the skills into effects.
 	if resolver := e.phase.resolver(currentPhase); resolver != nil {
-		out.effects = resolver.Resolve(e.pendingUses, newStateView(e.state))
+		out.effects = resolver.Resolve(e.pendingUses, e.view())
 		e.logger.Debug("resolved effects", phaseField(currentPhase), logField("effect_count", len(out.effects)))
 	}
 
@@ -339,7 +371,7 @@ func (e *Engine) advancePhase() (phaseOutcome, error) {
 
 	nextPhase := e.calculateNextPhase(currentPhase, out.effects)
 
-	gameOver, winner := e.victory.CheckVictory(newStateView(e.state))
+	gameOver, winner := e.victory.CheckVictory(e.view())
 	endNow := gameOver && !e.state.hasPendingDetour()
 	if endNow {
 		nextPhase = PhaseEnd
@@ -371,9 +403,7 @@ func (e *Engine) advancePhase() (phaseOutcome, error) {
 	//    phase **being entered** -- the former says "my ending is a round",
 	//    the latter says "I begin from a clean board".
 	settled := !endNow && !e.state.hasPendingDetour()
-	e.state.nextPhase(nextPhase,
-		settled && e.config.endsRound(currentPhase),
-		settled && e.config.clearsRoundVars(nextPhase))
+	e.transition(nextPhase, settled)
 
 	if endNow {
 		// The end event is built along the same path as every other event,
@@ -384,8 +414,7 @@ func (e *Engine) advancePhase() (phaseOutcome, error) {
 		// event stream, and the effect log. Without the return value, a
 		// caller routing along EndPhase -> AudienceOf would miss the single
 		// most important thing in the game -- who won.
-		endEffect := NewEffect(EventGameEnded, "", "").
-			WithData(winnerKey, winner)
+		endEffect := newGameEndedEffect(winner)
 		out.effects = append(out.effects, endEffect)
 		e.recordEffects(endEffect)
 		out.events = append(out.events, endEffect.ToEvent())
@@ -404,6 +433,31 @@ func (e *Engine) advancePhase() (phaseOutcome, error) {
 	out.handlers = e.snapshotEventHandlersLocked()
 
 	return out, nil
+}
+
+// MaxPendingUses bounds how many unresolved submissions one phase will hold.
+//
+// It is a backstop against a misbehaving or malicious client, not a rule: a
+// real phase collects one submission per actor, and no board comes close.
+const MaxPendingUses = 4096
+
+// transition moves the machine to another phase.
+//
+// **Normal progression and log replay share this one function.** They used to
+// be two call sites computing the same three arguments, and they drifted
+// three times -- each time the replay path did one thing less than the live
+// one, and each time the divergence was caught only by the random-game
+// invariants. Whatever a transition entails, it is written here once.
+//
+// settled says the board is at rest: no detour is still pending and the game
+// is not ending on this step. Round bookkeeping is held back while it is
+// false, because the pending queue lives in the round context and clearing
+// round state would erase a debt that was never settled.
+//
+// The caller must hold e.mu.
+func (e *Engine) transition(to PhaseType, settled bool) {
+	from := e.state.Phase
+	e.state.enterPhase(from, to, settled, e.phase.tree)
 }
 
 // EndPhase ends the current phase: resolve the skills, apply the effects,
@@ -470,8 +524,16 @@ func (e *Engine) Status() Status {
 func (e *Engine) View() GameView {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return newStateView(e.state.clone())
+	return newStateView(e.state.clone(), e.phase.tree)
 }
+
+// view builds the read-only view handed to every extension point.
+//
+// One helper rather than a newStateView call at each site: the view now
+// carries the phase hierarchy as well as the state, and two arguments
+// assembled by hand in nine places is nine chances to pass the wrong one.
+// The caller must hold e.mu.
+func (e *Engine) view() GameView { return newStateView(e.state, e.phase.tree) }
 
 // Apply applies a batch of effects directly, bypassing phase resolution.
 //
@@ -585,27 +647,35 @@ func (e *Engine) applyEffects(effects []*Effect) ([]*Effect, []*Event) {
 	kept := make([]*Effect, 0, len(effects))
 	events := make([]*Event, 0, len(effects))
 
-	for _, effect := range effects {
+	for _, produced := range effects {
 		// A third-party Resolver's slice may contain a nil; drop it here
 		// rather than bringing the game down. This check has to come first:
 		// the nil guard inside applyEffect cannot reach vetDetour or the log
 		// fields below.
-		if effect == nil {
+		if produced == nil {
 			continue
 		}
-		kept = append(kept, effect)
 
-		e.vetDetour(effect)
-		e.state.applyEffect(effect)
+		// Offer it to the interceptors before it lands. They see the board
+		// this effect is about to change and not the change itself, which is
+		// what "should this be allowed" needs; what comes back is what
+		// actually gets applied, and both the original and its replacement
+		// stay in the log.
+		for _, effect := range e.runInterceptors(produced) {
+			kept = append(kept, effect)
 
-		e.logger.Debug("effect applied",
-			eventField(effect.Type),
-			playerField(effect.SourceID),
-			targetField(effect.TargetID),
-			logField("canceled", effect.Canceled))
+			e.vetDetour(effect)
+			e.state.applyEffect(effect)
 
-		if !isInternalEvent(effect.Type) {
-			events = append(events, effect.ToEvent())
+			e.logger.Debug("effect applied",
+				eventField(effect.Type),
+				playerField(effect.SourceID),
+				targetField(effect.TargetID),
+				logField("canceled", effect.Canceled))
+
+			if !isInternalEvent(effect.Type) {
+				events = append(events, effect.ToEvent())
+			}
 		}
 	}
 
@@ -628,7 +698,7 @@ func (e *Engine) vetDetour(effect *Effect) {
 	if effect.Canceled || effect.Type != EventDetour {
 		return
 	}
-	phase, ok := effect.detourPhase()
+	phase, ok := phaseOf(effect)
 	if !ok {
 		effect.Cancel("ability trigger carries no target phase")
 		e.logger.Error("ability trigger carries no target phase",
@@ -682,7 +752,7 @@ func (e *Engine) gotoFrom(effects []*Effect) (PhaseType, bool) {
 		if ef == nil || ef.Canceled || ef.Type != EventGotoPhase {
 			continue
 		}
-		p, ok := ef.gotoPhase()
+		p, ok := phaseOf(ef)
 		if !ok {
 			continue
 		}
