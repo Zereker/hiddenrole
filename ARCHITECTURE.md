@@ -22,8 +22,18 @@ Rules hang off **phases**, not off roles. "Who the guard may protect" is not a
 method on a guard class; it is the configuration of the `NIGHT_GUARD` phase
 plus the judgement of its resolver.
 
-The benefit is that adding a role does not mean editing the engine: a new role
-is a new `PhaseConfig` plus a new `Resolver`.
+A new role is therefore **a new `PhaseConfig` plus a new `Resolver`**, and the
+engine is not edited to add one. Say it that way round rather than "adding a
+role does not require editing the engine": the second is true and misleads,
+because it invites the reader to expect roles to be plug-in units. They are
+not. Two roles acting in the same phase share that phase's one resolver, and
+adding the second means editing it.
+
+What is genuinely composable is narrower and worth stating exactly: a rule can
+react to an effect **another rule produced**, without either knowing about the
+other, by installing an `Interceptor` (see below). That covers the case the
+sharing hurts most -- "my role changes what happens when somebody dies" -- and
+it is not the same thing as roles being independent modules.
 
 ### 2. Every state change goes through an Effect
 
@@ -236,10 +246,18 @@ options (`NewEngine`, `MustNewEngine`, `RestoreEngine`, `ReplayEngine`):
 | who should be told about something | `WithAudience(provider)` |
 | who is on whose side | `WithTeammates(provider)` |
 | who hears a player speak | `WithSpeech(provider)` |
+| standing in the path of another rule's effect | `WithInterceptor(interceptor)` |
 | logging | `WithLogger(l)` |
 
 All of them live in the kernel package -- extending the rules is rewiring the
 kernel, and the `hiddenrole.` prefix at the call site is deliberate.
+
+`WithInterceptor` is the one that **appends** instead of replacing. The others
+answer a question the kernel asks, and asking twice is meaningless, so the
+last registration wins. An interceptor is the other direction -- it stands in
+the path -- and several rules may each want to; "the last one wins" would
+silently disable the rest. They run in registration order, which makes that
+order part of the rules' configuration.
 
 An ability triggered on elimination is produced by a Resolver as a
 `NewDetourEffect`; the engine queues it, routes to it automatically, and
@@ -276,8 +294,24 @@ Explicitly out of scope, to avoid misunderstanding:
 
 ## Saving
 
-`Engine.Snapshot()` exports the board and `RestoreEngine(config, snap)`
-rebuilds an engine.
+**The log is the record; the board is a cache.** `Engine.Log()` exports a
+`GameLog`, and `ReplayEngine(config, log)` rebuilds an engine from it.
+`Engine.Snapshot()` exports the board **plus that log**, and
+`RestoreEngine(config, snap)` reads the board when it can and replays the log
+when it cannot.
+
+This was the other way round, and the inversion was the single biggest
+structural problem in the design: the log carried `map[string]interface{}`
+payloads that degraded on a JSON round trip, so it was documented as an
+in-process aid and the board was the only durable artefact. Every benefit
+downstream of a persisted event stream -- audit after a restart, post-game
+analysis, rebuilding after a crash -- was unavailable, in an architecture
+that had paid for all of them.
+
+`Effect`'s payload is split so it can survive storage: `Args` for the
+kernel's own primitives, typed and closed; `Data` for the rules' payload,
+strings only. `VarScope` has a JSON codec of its own, because the wrong cell
+coming back would file a round-scoped write under whole-game storage.
 
 **The snapshot types and the engine's internal types are deliberately two
 separate sets**: the internal ones evolve with refactoring, while a snapshot
@@ -292,7 +326,9 @@ The trade-offs:
   rules is the caller's business, and mixing them into a save leaves both
   sides unable to say what they hold.
 - **It does contain unresolved skills.** `pendingUses` are exported too, so a
-  save point need not sit on a phase boundary.
+  save point need not sit on a phase boundary. These are the one thing the
+  log cannot reproduce -- they never became effects -- so a game rebuilt by
+  replay resumes at the start of its current phase.
 - **Enums serialise by name** (`"NIGHT_GUARD"`, not `21`). A save is meant to
   be read by people and possibly by other languages, and numbers do not line
   up. Since the enums became strings this needs no translation layer, and a
@@ -301,23 +337,25 @@ The trade-offs:
   export, so one board gives identical bytes -- which makes comparison and
   idempotent writes possible (Go's map iteration order is randomised, so
   without sorting neither is).
-- **A version mismatch is rejected outright**, rather than reading old data
-  through a new structure -- which would give a board that looks fine and is
-  in fact scrambled. `SnapshotVersion` carries the version, and a golden test
-  pins the serialised shape so that changing the structure without bumping the
-  version goes red.
+- **Two version numbers, moving at different rates.** `LogVersion` pins what
+  an entry *means* and changes almost never; `SnapshotVersion` pins the shape
+  of the board and moves with every refactor. Only the first is a
+  compatibility commitment. A board this build cannot read is rebuilt from
+  the log rather than rejected, which is what stopped a bump from abandoning
+  a generation of saved games -- it had done so thirteen times.
 
 ## The effect log
 
-`EffectLog` accumulates every effect since the game was created, and
+`Engine.Log()` returns every effect since the game was created, and
 `ReplayEngine` rebuilds the board from it. Three events -- `PLAYER_ADDED`,
 `GAME_STARTED` and `PHASE_CHANGED` -- make the log self-contained, so a full
 rebuild needs no outside information.
 
-The division of labour with snapshots: **the effect log is history, a snapshot
-is state**. Persist with a snapshot (`Effect.Data` is a
-`map[string]interface{}` whose types degrade on a JSON round trip), and use
-the effect log for in-process replay, post-game analysis and investigation.
+It survives storage exactly, and that is checked rather than asserted:
+`enginetest`'s replay invariant marshals the log to JSON, unmarshals it, and
+replays *that*, then compares the rebuilt board with the original byte for
+byte. Replaying the in-memory objects would have passed on a log no storage
+could hold, which is precisely what used to happen.
 
 ## Testing infrastructure
 

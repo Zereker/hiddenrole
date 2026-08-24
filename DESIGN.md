@@ -93,7 +93,7 @@ So every kernel default must come with an explicit way to overrule it:
 | a skill may not target the dead | `PhaseStep.AllowDeadTarget` |
 | the dead may not speak | `WithSpeech(provider)` |
 | the next phase comes from static configuration | `NewGotoPhaseEffect(phase)` |
-| the round ends at the phase marked `EndsRound` | the rules mark it in the configuration; the kernel does not guess |
+| the round ends at the phase declaring `ActionAdvanceRound` | the rules mark it in the configuration; the kernel does not guess |
 
 **A default with no override is law.** Before adding any default behaviour,
 answer "how do the rules overrule it".
@@ -231,7 +231,7 @@ design's main changes; the reasoning is in §8.
 | Stored | What it is | Written by |
 |---|---|---|
 | `Phase` | the current phase | the kernel (transitions) |
-| `Round` | **how many times a phase marked `EndsRound` has been passed** -- a plain counter | the kernel, with the boundary declared by the rules |
+| `Round` | **how many times a phase declaring `ActionAdvanceRound` has been left** -- a plain counter | the kernel, with the boundary declared by the rules |
 | `Actors: map[phase][]id` | the actors the rules named, spent on use | the rules (`SET_ACTORS`) or the detour queue |
 | the detour queue | "someone owes an action in some phase", first in first out | the rules (`DETOUR`) |
 
@@ -241,7 +241,7 @@ a boundary, and "one round" is a rules concept (three phases in the
 mission-based games, eight in werewolf). So the kernel only counts, and the
 rules mark the boundary in the configuration. "Round number +1" and
 "round-scoped variables cleared" are two things and are declared separately
-(`EndsRound` / `ClearsRoundVars`) -- most boards have them coincide, and the
+(`ActionAdvanceRound` in `OnExit` / `ActionClearRoundVars` in `OnEnter`) -- most boards have them coincide, and the
 mission-based games do not.
 
 **Why `GOTO_PHASE` cannot replace the detour queue**: it governs three things,
@@ -392,7 +392,7 @@ the class of judgement this library sets out to take off a caller's hands.
 
 ## 6. The extension points
 
-Eight, all of which can only be given at construction: once the engine is in
+Nine, all of which can only be given at construction: once the engine is in
 the caller's hands, they no longer change.
 
 | To add | Use |
@@ -405,10 +405,18 @@ the caller's hands, they no longer change.
 | who is on whose side | `WithTeammates(p)` |
 | who hears a player speak | `WithSpeech(p)` |
 | what a role additionally sees | `WithRoleInfo(role, p)` |
+| standing in the path of another rule's effect | `WithInterceptor(i)` |
 
-All eight can be installed with a plain function (`ResolverFunc` /
+All nine can be installed with a plain function (`ResolverFunc` /
 `VictoryFunc` / ...). **Built-in roles hold no privilege** -- they go through
 the same doors.
+
+The last one differs from the other eight in two ways, both deliberate. It
+**appends** rather than replacing -- several rules may want to stand in the
+path, and "the last registration wins" would silently disable the rest. And
+it is the only one the kernel calls **without having a question**: the other
+eight answer something the engine asks, while an interceptor is offered every
+effect on its way to the write point and usually declines to care.
 
 **Extension points must not call back into the engine**: they are called
 synchronously while the engine holds its lock, and calling any `Engine` method
@@ -498,6 +506,9 @@ priority** (see [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/
 | **aliveness is a privileged bool, one bit only** | the mission-based rules use it nowhere, yet pay for it in a snapshot field, a view field and three default decisions | Blood on the Clocktower's poisoned / drunk / protected are parallel state bits; "silenced but alive" |
 | ~~**identity is fixed at seating**~~ | **judged wrong, withdrawn.** The third rules package (One Night, exactly the one named here) proved the opposite: what a card-swapping game wants is not "a writable `RoleType`" but **two layers of identity** -- the card dealt (decides what you do at night, never changes) and the card in hand now (decides which side you score for, does change). One layer from the kernel and one from the rules is exactly enough; flatten them and the robber wakes up with the wolves and the game collapses on the spot. **Immutability is the value here.** See [onenight/SCARS.md scar 0](https://github.com/Zereker/werewolf/blob/main/onenight/SCARS.md) | — |
 | **the detour queue's naming and docs still say "death ability"** | the concept has been generalised, the words did not follow | pure documentation debt, zero risk |
+| ~~**the log cannot be written down**~~ | **closed.** `Effect.Data` was `map[string]interface{}`, so payloads degraded on a JSON round trip and the replay path's assertions failed on any stored log. The payload is now split -- typed `Args` for the kernel's primitives, string `Data` for the rules' -- and the log is the durable record a snapshot is derived from | — |
+| ~~**one `Resolver` per phase, composition by hand-wrapping**~~ | **partly closed.** `Interceptor` gives a rule somewhere to stand in the path of an effect another rule produced, which was the case that hurt. Resolution itself is still one function per phase, and that part stays until a game runs into it | — |
+| ~~**"the night as a whole" is inexpressible**~~ | **closed.** `PhaseConfig.Parent` groups phases; entry and exit actions fire once for the group, and `GameView.InPhase` asks about it | — |
 
 The first two share one fix: **demote them to canonical keys in the variable
 table** (§3.1). That is not two changes but one -- the state model converging
@@ -509,7 +520,7 @@ from "a variable table plus two privileged fields" into "a variable table".
 |---|---|
 | victory has a single `Camp` | **One Night has run into it** (the tanner can win alongside the villagers, a routine outcome of the base game). Judged as **wait for a second collision** -- it is the only breaking signature change, and one ruleset is not enough to move an interface that was just frozen |
 | `SkillUse.Targets` can only hold player IDs | **One Night has run into it** (looking at a centre card). Judged as **not fixing it for now**: the way around it (encoding the index into the skill name) is ugly and tells no lie, at a cost of 15 lines |
-| one `Resolver` per phase, composition by hand-wrapping | games whose phase resolution is heavily reused |
+| one `Resolver` per phase for **resolution itself** | games whose phase resolution is heavily reused. Reacting to another rule's effect is no longer part of this gap; producing one still is |
 | the kernel has no randomness | games that draw or roll during play (**it was added once, and removed for having no users**) |
 
 **None of these four moves until a game really runs into it** -- and "ran into

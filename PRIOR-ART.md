@@ -34,7 +34,7 @@ side by side:
 | **who may act** | `ctx.activePlayers`, a runtime set living in state | `SetActors`, a runtime list living in state | since fixed; same shape |
 | what they may do | `GetMove` layered: stage -> phase -> global | `PhaseStep.Skill`, enumerated per phase | comparable |
 | where to go next | `next` may be a string or a function | `NextPhase` as the default, overridden by a `GOTO_PHASE` effect | comparable (we only just fixed it) |
-| what a round is | **no such concept**, only turns and phases | `Round`, declared by `EndsRound` | we have one more; questionable |
+| what a round is | **no such concept**, only turns and phases | `Round`, declared by `ActionAdvanceRound` | we have one more; questionable |
 | who can see what | one function, `playerView(G, ctx, playerID) -> G'` | a structured `PlayerView` + `AudienceOf` + a non-configurable floor | **we are clearly stronger** |
 | randomness | PRNG state lives in game state, so replay is deterministic | the kernel offers none | added, then removed; see below |
 | when a phase ends | `endIf` / `maxMoves` end it automatically; the framework runs it | not our business; the caller calls `EndPhase` | deliberately different, and we are right |
@@ -227,9 +227,16 @@ So the mission rules had to clear them by hand in the nomination resolver --
 **the kernel was one lifetime short and the rules made up the difference**.
 Same root cause as scar 3: the kernel welding two things together.
 
-They are separate now: `EndsRound` governs counting only, and
-`ClearsRoundVars` says "this phase of mine begins from a clean board". Each
-phase declares only what is about itself, and `Validate` enforces both.
+They are separate now: `ActionAdvanceRound` governs counting only, and
+`ActionClearRoundVars` says "this phase of mine begins from a clean board".
+Each phase declares only what is about itself, and `Validate` enforces both.
+
+Both later became entries in `OnExit` / `OnEnter` rather than booleans, and a
+phase can now sit inside a **compound phase** -- so "the night begins from a
+clean board" is declared once on the group instead of on whichever member
+comes first. That is a second thing boardgame.io has no need of, for the same
+reason it has no round: with one free-form bag and no partitions, there is no
+lifetime to attach to a group.
 
 ## One thing we deliberately do not copy
 
@@ -262,5 +269,5 @@ we are **ahead on one half and in debt on the other**:
 And the shape of the debt is clear, because the comparison hands over a
 copyable answer: **first-class state + the rules set it with an effect + the
 kernel enforces it at the entry point + fall back to a default when unset.**
-We have solved two things with this shape already (`EndsRound`,
+We have solved two things with this shape already (the round boundary,
 `GOTO_PHASE`); this was the third.

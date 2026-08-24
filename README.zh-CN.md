@@ -122,9 +122,10 @@ func main() {
 					{Role: roleRed, Skill: skillVote, Required: true, Multiple: true},
 					{Role: roleBlue, Skill: skillVote, Required: true, Multiple: true},
 				},
-				NextPhase:       phaseVote, // 阶段环，转回自己
-				EndsRound:       true,      // 这个阶段结束就是一回合
-				ClearsRoundVars: true,      // 而它开始时是干净的
+				NextPhase: phaseVote, // 阶段环，转回自己
+				// 进出这个阶段各自意味着什么。
+				OnExit:  []hiddenrole.PhaseAction{hiddenrole.ActionAdvanceRound},
+				OnEnter: []hiddenrole.PhaseAction{hiddenrole.ActionClearRoundVars},
 			},
 		},
 	}
@@ -198,6 +199,39 @@ SubmitSkillUse  ->  Resolver.Resolve  ->  []*Effect  ->  applyEffect
 产出一条 `SET_ALIVE`。两个效果，两件事：前者给受众与效果流看，后者给
 状态机看。上面例子里 `OUT` 和 `SET_ALIVE` 成对出现就是这个意思。
 
+## 挡在别人产生的效果前面
+
+`SetsAlive()` 让一条规则认出「有人要死了」，而不管死因是什么——狼刀、
+毒药、枪响最后都落到同一条原语上。`Interceptor` 就是这段代码运行的地方：
+
+```go
+// 白痴被放逐时不死，改为翻牌。
+hiddenrole.WithInterceptor(hiddenrole.InterceptorFunc(
+	func(ef *hiddenrole.Effect, view hiddenrole.GameView) []*hiddenrole.Effect {
+		alive, ok := ef.SetsAlive()
+		if !ok || alive {
+			return nil // 没意见，原样交回去
+		}
+		p, found := view.Player(ef.TargetID)
+		if !found || p.Role != roleIdiot {
+			return nil
+		}
+		return []*hiddenrole.Effect{ // 用翻牌替换掉这次死亡
+			hiddenrole.NewEffect(eventFlip, "", p.ID),
+			hiddenrole.NewSetVarEffect(hiddenrole.ScopeGame.Of(p.ID), keyFlipped, hiddenrole.VarPresent),
+		}
+	}))
+```
+
+产生这次死亡的规则和反对它的规则不共享任何代码，也不需要知道对方存在。
+没有这条通道时，唯一能站的位置是**产生这个效果的解析器内部**，这就使得
+写作单元是阶段而不是角色。
+
+它是一条流水线，刻意不是万智牌那套替代效果系统：每个拦截器对每个效果只看
+一次，按注册顺序，它返回什么下一个就看到什么。没有优先级、没有堆栈、没有
+层——它靠结构本身保证终止。被替换掉的效果会以「已否决」的形态留在日志里，
+所以历史既记下发生了什么，也记下差点发生什么。
+
 ## 谁能知道什么
 
 ```go
@@ -214,7 +248,7 @@ e.AudienceOf(event)   // 一件事该发给哪些玩家
 面向玩家的 `PlayerView` / `AudienceOf` 与上帝视角的 `PhaseInfo` /
 `PlayerInfo` 是两套读法，别混用：前者可以直接发给玩家，后者不行。
 
-## 八个扩展点
+## 九个扩展点
 
 | 想加什么 | 用什么 |
 |---|---|
@@ -225,17 +259,20 @@ e.AudienceOf(event)   // 一件事该发给哪些玩家
 | 一件事该告诉谁 | `WithAudience(provider)` |
 | 谁和谁是一边的 | `WithTeammates(provider)` |
 | 发言谁能听到 | `WithSpeech(provider)` |
+| 挡在别人产生的效果前面 | `WithInterceptor(i)` |
 | 日志 | `WithLogger(l)` |
 
 外加两个不走选项的：局中的状态变更走 `Effect` 原语，宿主级的
 状态修改走 `Engine.Apply`（同样经唯一写入点，但绕开阶段结算——是把
 锋利的刀）。
 
-**八个扩展点都能用一个普通函数装上**：`ResolverFunc` / `VictoryFunc` /
+**九个扩展点都能用一个普通函数装上**：`ResolverFunc` / `VictoryFunc` /
 `RoleSetupFunc` / `GameSetupFunc` / `RoleInfoFunc` / `AudienceFunc` /
-`TeammateFunc` / `SpeechFunc`。前两个是后补的——此前只有它们两个没有
-适配器，没有理由，只是历史，于是「装一个只有几行的解析器」得先声明
-一个空结构体。
+`TeammateFunc` / `SpeechFunc` / `InterceptorFunc`。
+
+`WithInterceptor` 是唯一**追加**而不是替换的：可能有好几条规则都想挡在
+路上，「注册两次保留最后一次」会悄悄让其中一条失效。它们按注册顺序运行，
+这个顺序属于规则自己的配置。
 
 全部只能在构造时给出：引擎交到调用方手上之后，这些就不再变了。
 `NewEngine` / `MustNewEngine` / `RestoreEngine` / `ReplayEngine`
@@ -248,7 +285,7 @@ e.AudienceOf(event)   // 一件事该发给哪些玩家
 | 决定 | 谁说了算 |
 |---|---|
 | 下一步去哪个阶段 | `PhaseConfig.NextPhase` 是默认出口，规则可用 `NewGotoPhaseEffect` 在结算时改写 |
-| 这一步之后是不是新回合 | `PhaseConfig.EndsRound` 声明 |
+| 这一步之后是不是新回合 | 由该阶段 `OnExit` 里的 `ActionAdvanceRound` 声明 |
 
 这两件事此前都是内核自己定的：出口查一张静态图，回合边界猜「绕回起始阶段
 就算」。狼人杀里两个猜测都恰好成立（夜→昼→夜），换一套规则就不成立。
@@ -269,6 +306,33 @@ if approved {
 出口的优先级：**待结算的绕道队列 > `GOTO_PHASE` > `NextPhase`**。触发排最前
 是因为队列必须排空——胜负判定与回合边界都等着它，中途跳走会把还没结算的
 死亡技能丢掉。目标阶段不在配置里时记一条错误日志并退回默认出口。
+
+## 一个阶段可以是一组阶段
+
+夜晚是一件包含四件事的事，配置现在能这么说：`PhaseConfig.Parent` 把一个
+阶段放进一个**复合阶段**里。
+
+```go
+phaseNight:      {Type: phaseNight, OnEnter: []hiddenrole.PhaseAction{hiddenrole.ActionClearRoundVars}},
+phaseNightGuard: {Type: phaseNightGuard, Parent: phaseNight, NextPhase: phaseNightWolf, ...},
+phaseNightWolf:  {Type: phaseNightWolf, Parent: phaseNight, NextPhase: phaseNightWitch, ...},
+```
+
+进入与离开的动作是针对**这一组**触发的，且只触发一次。从 `NIGHT_GUARD`
+走到 `NIGHT_WOLF` 并没有离开夜晚，所以 `NIGHT` 的 `OnEnter` 不会再跑一遍；
+从 `DAY` 走到 `NIGHT_GUARD` 才算进入夜晚，于是它才跑。规则就是状态图那一条：
+把两端**共有**的组去掉，剩下的才是真正被离开和真正被进入的。
+
+规则也能直接问这一组，而不是问它的成员清单：
+
+```go
+if view.InPhase(phaseNight) { ... } // 而不是 phase == GUARD || phase == WOLF || ...
+```
+
+那份清单，每加一个夜间阶段就会无声地失效一次。
+
+复合阶段是个名字，不是一站：它没有步骤、没有出口、不需要解析器，也没有
+任何转移指向它。`Validate` 会把这些全部检查掉，包括拒绝成环。
 
 ## 谁能在这个阶段行动
 
@@ -291,7 +355,7 @@ if approved {
 
 ## 扩展点不能回头找引擎
 
-八个扩展点全部在引擎**持锁期间**被同步调用。实现里回调 `Engine` 的任何
+九个扩展点全部在引擎**持锁期间**被同步调用。实现里回调 `Engine` 的任何
 方法，后果是**挂住**，不是报错——Go 的读写锁不可重入，那一局从此没有响应。
 
 它们不需要回调：想知道的一切都在参数里。签名是刻意收窄的,扩展点拿不到
@@ -344,16 +408,33 @@ p, _ := after.Player("b1")
 ## 存档、回放与错误
 
 ```go
-snap := e.Snapshot()                              // 纯数据，可直接 json.Marshal
-e2, err := hiddenrole.RestoreEngine(cfg, snap, opts...) // 选项要与建局时一致
+log := e.Log()                                        // 可持久化的记录，直接 json.Marshal
+e2, err := hiddenrole.ReplayEngine(cfg, log, opts...) // 按历史重建
 
-log := e.EffectLog()                              // 自建局以来的完整效果流
-e3, err := hiddenrole.ReplayEngine(cfg, log, opts...)  // 按流重建
+snap := e.Snapshot()                                   // 盘面，外加产生它的那份日志
+e3, err := hiddenrole.RestoreEngine(cfg, snap, opts...) // 选项要与建局时一致
 ```
 
-效果流是**历史**，快照是**状态**：持久化用 `Snapshot`，进程内的回放、
-复盘与排查用 `EffectLog`。快照带版本号（`SnapshotVersion`），读不懂的
-格式会明确拒绝而不是猜。
+**日志是真相，盘面是缓存。** `Snapshot` 里带着产生它的 `GameLog`，其余
+所有字段都能靠重放这份日志算回来——`RestoreEngine` 遇到本版本读不懂的盘面
+时做的正是这件事：
+
+| | |
+|---|---|
+| `Version` 认得 | 直接读盘面，并把日志接收为历史 |
+| `Version` 不认得 | 忽略盘面，改为重放日志 |
+
+所以 `SnapshotVersion` 升一位不再是断崖。以前是：盘面是唯一能写下来的
+东西，而这个号码已经动过十三次。**派生数据不需要迁移，它需要被丢掉重算。**
+（这条路径会丢一样东西：已提交但尚未结算的技能从未进入日志，所以这样重建
+出的对局会从当前阶段的开头继续。）
+
+这也是效果载荷要有类型的原因。`Effect.Data` 曾经是 `map[string]interface{}`，
+`PhaseType` 存进去、字符串取出来，重放路径上的类型断言在任何**落过盘的**
+日志上都会失败——历史实际上并不持久。现在 `Effect.Args` 以有类型的字段承载
+内核原语，`Effect.Data` 以字符串承载规则自己的载荷，而 `enginetest` 的重放
+不变量会**先把日志过一遍 JSON** 再重放，所以「能重放」的意思是「写下来再
+读回来之后仍能重放」。
 
 错误都带错误码，`errors.Is` 与 `HasCode` 都可用来判别：
 

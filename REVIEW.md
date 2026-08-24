@@ -3,6 +3,11 @@
 **Date:** 2026-08 · **Reviewed at:** `7a96b0b` · **Reviewer:** an outside reader,
 first contact with the codebase.
 
+> **Status.** Sections 1, 2 and 3 were acted on, and section 5's three
+> invariants along with them; see [the status section](#8-what-was-done) at
+> the end. The findings below are left as they were written, in the present
+> tense, so that what was claimed can still be checked against what was done.
+
 ## Scope and method
 
 Every non-test source file was read end to end (5.8k lines, of which 2.6k are
@@ -320,3 +325,81 @@ declares.
 Sections 2 and 3 should keep waiting for a real collision, in line with this
 project's own discipline. Section 5 is small work whose value is that three
 sentences currently doing invariant duty would start being enforced.
+
+---
+
+## 8. What was done
+
+All three structural sections were acted on in one change, breaking the API
+freeze deliberately. What follows is what each turned into, so that the
+finding and its fix can be read against each other.
+
+**§1, the log.** `Effect`'s payload was split the way `EventType` already
+split: the type stays open, the payload became closed. `Effect.Args` carries
+the kernel's primitives as typed fields; `Effect.Data` carries the rules'
+payload as strings. `GameLog` is now the durable record, with its own version
+that moves on a different beat from the board's. A `Snapshot` carries the log
+that produced it, so a restore keeps the history -- it used to drop it, four
+entries in and zero out. And a board section this build cannot read is
+rebuilt by replaying the log rather than rejected, which ends the cliff that
+had abandoned thirteen generations of saved games.
+
+The durability is checked rather than asserted: `enginetest`'s replay
+invariant now marshals the log to JSON, reads it back, and replays *that*.
+Replaying the in-memory objects would have passed on a log no storage could
+hold, which is exactly what used to happen.
+
+**§2, the substrate.** `Interceptor` gives a rule somewhere to stand between
+another rule's effect and the write point. It is a pipeline, not Magic's
+replacement-effect system: each interceptor sees each effect once in
+registration order, and its output is what the next one sees -- terminating by
+construction, deterministic, no priority or layers. A replaced effect stays in
+the log, cancelled, so the history records what was about to happen as well as
+what did.
+
+This closes the case the review said hurt most, and **not** the whole gap:
+resolution is still one function per phase, so two roles *acting* in the same
+phase still share it. What changed is that a role *reacting* to another role's
+action no longer needs to. The review's other recommendation was taken as
+well -- `ARCHITECTURE.md` principle 1 now says "a new role is a new
+`PhaseConfig` plus a new `Resolver`" instead of "adding a role does not
+require editing the engine", because the second is true and invites the reader
+to expect plug-in roles.
+
+**§3, the phase machine.** `EndsRound` and `ClearsRoundVars` were entry and
+exit actions wearing another name; they are now `PhaseAction` lists, so the
+next lifetime is a constant rather than a fourth boolean. `PhaseConfig.Parent`
+groups phases into compound ones, and transitions use the statechart rule:
+strip the groups both ends share, and what is left is really being left and
+entered. "The night begins from a clean board" is declared once on `NIGHT`,
+and `GameView.InPhase(NIGHT)` replaces enumerating its members.
+
+The review did **not** recommend adopting statecharts, and this is not that.
+There is no hierarchy of transitions, no parallel regions, no history states.
+What was taken is the one rule that makes grouping mean anything.
+
+**§5, the three invariants.** All three now hold and are tested: `clone` deep
+-copies the payload, `SubmitSkillUse` stores a copy and rejects nil, and
+pending submissions are bounded. The fourth, lesser item is done too.
+
+**§4 and the rest.** The evidence-standard finding stands unaddressed by
+definition -- it asks for a fourth rules package by somebody else, which is
+not something a change to this repository can supply. The missing git tag is
+likewise still missing, and now matters more: the surface moved.
+
+One thing was fixed that the review did not name. `enginetest.RunFuzz` had no
+caller in this repository, so the seven invariants -- the strongest
+verification here -- never ran against the kernel itself. There is now a
+ruleset in `enginetest/fuzz_test.go` built to exercise what the kernel owns
+(a compound phase, an interceptor, a detour queue, runtime actors, a victory
+condition) and deliberately not resembling werewolf. It is what gives any
+confidence that a rewrite this size did not break the invariants quietly.
+
+`API.md`'s Appendix A was regenerated, and is now **checked** by
+`TestAPI_AppendixMatchesTheGolden` rather than kept in step by remembering to
+-- the same wound this project keeps diagnosing elsewhere, sitting in the
+middle of the document that declares the API frozen. And `API.md` §15, which
+lists what would reopen the freeze, gained a fifth row: all four it had
+anticipated pressure from a *rules package*, and this break came from reading
+the kernel against the systems it resembles. A rules package tells you what
+hurts; it cannot tell you what is misshapen.

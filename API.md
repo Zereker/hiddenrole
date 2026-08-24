@@ -25,15 +25,33 @@
 >
 > What would reopen it: see [§15](#15-what-would-reopen-the-freeze).
 
-> **This document is the thing that is frozen.** It lists **every** exported
-> name in `github.com/Zereker/hiddenrole` and says what each one promises.
+> **This document is the thing that is frozen -- and the freeze has been
+> broken once, deliberately.**
+>
+> It lists **every** exported name in `github.com/Zereker/hiddenrole` and says
+> what each one promises.
+>
+> A structural review ([REVIEW.md](REVIEW.md)) found three things that could
+> not be fixed without changing the surface: the effect log could not be
+> written down, a rule had nowhere to stand between another rule's effect and
+> the write point, and the phase graph could not express a group of phases.
+> Each was a shape problem rather than a missing feature, so each cost
+> signatures.
+>
+> **None of them was one of the four triggers [§15](#15-what-would-reopen-the-freeze)
+> had written down.** All four of those anticipate a *rules package* running
+> into a limit; these came from reading the kernel against the mature systems
+> it resembles. That is worth recording as a miss in how the freeze was
+> framed, not just as an event: a list of ways the contract might have to
+> move, drawn up entirely from downstream pressure, had no room for "the
+> shape is wrong on its own terms". §15 now has a fifth row.
 >
 > The design intent is in [DESIGN.md](DESIGN.md) and the implementation order
 > in [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md).
 > This document is about the **contract** only: what exists, how to use it,
 > and whether it changes.
 >
-> Current size: **55 types, 24 package-level functions, 56 methods, 62
+> Current size: **60 types, 25 package-level functions, 60 methods, 74
 > constants and variables**, plus 6 names in the public sub-package
 > `enginetest` (see Appendix B). Appendix A is the complete listing, used for
 > comparison after the freeze.
@@ -128,9 +146,17 @@ type PhaseConfig struct {
 	Timeout   time.Duration
 	NextPhase PhaseType   // the default exit, overridable by GOTO_PHASE
 
-	EndsRound       bool  // when this phase ends, the round number goes up
-	ClearsRoundVars bool  // before entering this phase, round variables are cleared
+	Parent  PhaseType     // the compound phase this one sits inside
+	OnEnter []PhaseAction // run on entering; on a compound phase, once per group
+	OnExit  []PhaseAction // run on leaving; likewise
 }
+
+type PhaseAction string
+
+const (
+	ActionAdvanceRound   PhaseAction = "ADVANCE_ROUND"    // declared in OnExit
+	ActionClearRoundVars PhaseAction = "CLEAR_ROUND_VARS" // declared in OnEnter
+)
 ```
 
 **Only a looping phase graph needs a round boundary.** `Validate()` walks
@@ -139,13 +165,27 @@ line, each phase is visited once, there is no second round, and nothing is
 required. One Night has exactly such a graph (one night, one discussion, one
 vote in the whole game). A looping graph still needs at least one of each.
 
-**`EndsRound` and `ClearsRoundVars` are two things, declared separately.**
-Most boards have them coincide (in werewolf, the vote phase ending is both a
-new round and the right moment to clear); the mission-based games do not --
-team markers live until the next nomination while the round number tracks
-which mission it is. `Validate()` requires **at least one phase declaring
-each**, or the round stays at 1 forever and round variables are never
-cleared.
+**Counting and clearing are two things, declared separately.** Most boards
+have them coincide (in werewolf, the vote phase ending is both a new round and
+the right moment to clear); the mission-based games do not -- team markers
+live until the next nomination while the round number tracks which mission it
+is. `Validate()` requires **at least one phase declaring each** of
+`ActionAdvanceRound` and `ActionClearRoundVars`, or the round stays at 1
+forever and round variables are never cleared.
+
+They were two booleans, `EndsRound` and `ClearsRoundVars`. As a named list
+they gain three things: a compound phase can declare one for a whole group,
+the next lifetime is a constant rather than a fourth field, and an action the
+kernel does not recognise is rejected instead of being silently ignored.
+
+**A compound phase is a name for a group.** `Parent` puts a phase inside one;
+entry and exit actions then fire for the group exactly once, using the
+statechart rule -- strip the groups both ends share, and what is left is
+really being left and entered. So `NIGHT_GUARD -> NIGHT_WOLF` does not leave
+`NIGHT`, and `VOTE -> NIGHT_GUARD` enters it. A compound phase carries no
+steps and no exit, needs no resolver, and nothing may transition to it;
+`Validate()` enforces all of that and rejects a cycle. Ask about a group with
+`GameView.InPhase`.
 
 ```go
 type PhaseStep struct {
@@ -305,15 +345,23 @@ others.
 ### 5.6 Saving and replay
 
 ```go
-func (e *Engine) Snapshot() *Snapshot   // plain data, json.Marshal it directly
-func (e *Engine) EffectLog() []*Effect  // the complete effect log since the game was created
+func (e *Engine) Log() *GameLog         // the durable record; json.Marshal it
+func (e *Engine) EffectLog() []*Effect  // the same entries, for walking
+func (e *Engine) Snapshot() *Snapshot   // the board, plus the log that produced it
 ```
 
-**The division of labour**: a snapshot is **state**, an effect log is
-**history**. For persistence use a snapshot -- `Effect.Data` is a
-`map[string]interface{}` whose types degrade on a JSON round trip, and the
-effect log is designed for in-process replay and auditing, not as a storage
-format.
+**The division of labour**: the log is **history and authoritative**; the
+board in a snapshot is **derived** and exists so a restore need not replay
+from the beginning. `RestoreEngine` reads the board when it recognises the
+version and replays the log when it does not, so a `SnapshotVersion` bump
+costs a slower restore rather than a generation of saved games.
+
+This was the other way round. The log carried `map[string]interface{}`
+payloads that degraded on a JSON round trip, so it was documented as an
+in-process aid and the board was the only durable artefact -- an
+event-sourced architecture whose events could not be stored. The payload is
+now split: `Effect.Args` for the kernel's primitives, typed and closed, and
+`Effect.Data` for the rules', strings only.
 
 ---
 
@@ -398,13 +446,15 @@ type Effect struct {
 	Type     EventType
 	SourceID string
 	TargetID string
-	Data     map[string]interface{}
 	Canceled bool
 	Reason   string
+
+	Data map[string]string // the rules' own payload; the kernel never reads it
+	Args *EffectArgs       // the kernel's own primitives, typed; nil for a rule event
 }
 
 func NewEffect(eventType EventType, sourceID, targetID string) *Effect
-func (e *Effect) WithData(key string, value interface{}) *Effect
+func (e *Effect) WithData(key, value string) *Effect
 func (e *Effect) Cancel(reason string)
 func (e *Effect) ToEvent() *Event
 ```
@@ -770,6 +820,33 @@ below reopens the corresponding part:
 | **the "a target must be a player" encoding starts lying, or combinatorially explodes** | `PhaseStep` gains a `TargetKind` | one-night card swapping ran into it, but the way around it is ugly without being false, at a cost of 15 lines |
 | **some ruleset cannot be written because "aliveness is one bit"** | `Alive` is demoted to a canonical key | not yet. Blood on the Clocktower's poisoned/drunk are the candidates |
 | **a fourth and fifth rules package still cannot use `RoleSystem`** | it moves into the werewolf package | one of the three uses it |
+| **a structural review finds the shape itself wrong** | whatever that shape costs | **fired once**, and it is the only row that has. See below |
+
+### The fifth row, and why it was missing
+
+The four rows above share an assumption: that pressure on the contract comes
+from **downstream**, from a rules package running into a limit. That is where
+three rules packages' worth of experience said to look.
+
+It is not where the next break came from. A review read the kernel against
+the mature systems it resembles -- event-sourced stores, card-game rules
+engines, statecharts -- and found three places where the design was not wrong
+in what it did but wrong in **how it was shaped**:
+
+- the architecture paid event sourcing's full price and collected half its
+  value, because the log could not be written down;
+- `SetsAlive` was documented as a hook for intercepting a death, and there
+  was nowhere for that code to run;
+- the phase graph could not say that four phases are one night, so anything
+  true of the group was declared four times.
+
+None of these would have surfaced from writing a fourth rules package,
+because each had a workaround that was merely unpleasant. They surfaced from
+comparison. That is the same lesson `PRIOR-ART.md` already records in one
+direction -- *a comparison tells you what you are missing; it cannot tell you
+whether you need it* -- read in the other: **a rules package tells you what
+hurts; it cannot tell you what is misshapen.** Neither test substitutes for
+the other, and the freeze criteria only had the first.
 
 ### The first criterion has not been tested by itself yet
 
@@ -785,6 +862,152 @@ forces a breaking change, the freeze came too early; if it forces only changes
 with zero exported names (as the third did), the freeze holds.
 
 ---
+
+## Appendix B: `enginetest` -- the test harness for rules packages
+
+A public sub-package of the same module, in the same position as
+`net/http/httptest`: **a test harness for users of the library, not the thing
+under test.**
+
+```go
+func RunFuzz(t *testing.T, spec FuzzSpec)
+
+type FuzzSpec struct {
+    Games    int      // how many games to run
+    MaxSteps int      // most steps per game
+    Setup    Setup    // how to lay a game out (the same rng must lay out the same game)
+    Act      Act      // how to take a turn; nil means only advance phases
+    WantEnd  bool     // whether every game must finish within MaxSteps
+    MustSee  []string // none of these labels may be zero, or the randomisation has degenerated
+}
+
+type Game struct { Config *hiddenrole.Config; Options []hiddenrole.EngineOption; Seats []Seat; Labels []string }
+type Seat struct { ID string; Role hiddenrole.RoleType }
+type Setup func(rng *rand.Rand) Game
+type Act   func(e *hiddenrole.Engine, rng *rand.Rand)
+```
+
+The rules package supplies "how to lay a game out and how to take a turn", and
+`RunFuzz` supplies **seven general invariants**, not one of which knows any
+game:
+
+| | |
+|---|---|
+| snapshot round trip | compare snapshots byte for byte, **and compare behaviour** (who may act, readiness, the god's-view lists) |
+| effect-log replay | the same two |
+| three paths agree | `AllowedSkills` and `PlayerView.AllowedSkills` must match |
+| lists are stable | querying the same board repeatedly gives the same order |
+| `Status` is coherent | over means stopped at `PhaseEnd` with a winner; not over means no winner |
+| over stays over | once the game is over the board stops changing, and it still survives a save round trip |
+| primitives are not sent out | not one kernel state primitive reaches `OnEvent` |
+
+**The "and compare behaviour" clause was forced out by mutation
+verification**: the first version compared snapshot bytes only, and when the
+snapshot serialiser itself drops a field it drops it on both sides, so the
+comparison is blind -- the "snapshot loses `Actors`" mutation survived on the
+spot. With behaviour comparison added, the first run caught three real bugs.
+
+It used to be called `internal/gamefuzz`. `internal/` can only be imported
+from within the same module, and the engine had to become its own library --
+the rules packages then live in another module and could not use a line of it.
+Being public, it is pinned by `TestAPI_SurfaceIsPinned` along with everything
+else, or it would be a back door around the freeze.
+
+---
+
+## Appendix A: the complete listing of exported names
+
+**The freeze baseline.** Guarded by `TestAPI_SurfaceIsPinned` and
+`testdata/api.golden` -- change a **name or a signature** and the test goes
+red.
+
+In total **60 types / 25 package-level functions / 60 methods / 22 interface
+methods / 74 constants and variables**. They are listed by name below; the
+complete listing with signatures is in `testdata/api.golden`.
+
+### Types (60)
+
+```
+AudienceFunc  AudienceProvider  Board  Camp  Config  Detour
+DetourSnapshot  Effect  EffectArgs  Engine  EngineOption  ErrorCode  Event
+EventHandler  EventType  Field  GameError  GameLog  GameSetup
+GameSetupFunc  GameView  Interceptor  InterceptorFunc  Logger  Message
+MessageHandler  PendingAction  PhaseAction  PhaseConfig  PhaseInfo
+PhaseReadiness  PhaseStep  PhaseType  PlayerInfo  PlayerSnapshot
+PlayerView  PublicPlayerInfo  Resolver  ResolverFunc  RoleInfoFunc
+RoleInfoProvider  RolePhaseInfo  RoleSetup  RoleSetupFunc  RoleType
+RoundContext  RoundCtxSnapshot  SelfInfo  SkillType  SkillUse
+SkillUseSnapshot  Snapshot  SpeechFunc  SpeechProvider  Status
+TeammateFunc  TeammateProvider  VarScope  VictoryChecker  VictoryFunc
+```
+
+### Package-level functions (25)
+
+```
+CodeOf  HasCode  Mark  MustNewEngine  NewDetourEffect  NewEffect
+NewEngine  NewGotoPhaseEffect  NewSetActorsEffect  NewSetAliveEffect
+NewSetVarEffect  ReplayEngine  RestoreEngine  Seat  WithAudience
+WithGameSetup  WithInterceptor  WithLogger  WithResolver  WithRoleInfo
+WithRoleSetup  WithSpeech  WithTeammates  WithVictoryChecker  WrapError
+```
+
+### Methods (60, by receiver)
+
+```
+AudienceFunc(1)  Audience
+Board(4)  Apply  Player  Var  View
+Camp(1)  String
+Config(2)  PhaseTimeout  Validate
+Effect(5)  Cancel  SetsAlive  SetsVar  ToEvent  WithData
+Engine(24)  AddPlayer  AlivePlayerIDs  AllowedSkills  Apply  AudienceOf  EffectLog  EndPhase  Log  MessageReceivers  OnEvent  OnMessage  PhaseInfo  PhaseReadiness  PlayerInfo  PlayerView  RoundContext  SendMessage  Snapshot  Start  Status  SubmitSkillUse  Teammates  Var  View
+ErrorCode(1)  String
+EventType(1)  String
+GameError(2)  Error  Unwrap
+GameSetupFunc(1)  Setup
+InterceptorFunc(1)  Intercept
+PhaseInfo(3)  GodAnnouncementStep  NeedsGodAnnouncement  PlayerActionSteps
+PhaseType(1)  String
+ResolverFunc(1)  Resolve
+RoleInfoFunc(1)  RoleInfo
+RoleSetupFunc(1)  Setup
+RoleType(1)  String
+SkillType(1)  String
+SkillUse(1)  Target
+SpeechFunc(1)  Receivers
+TeammateFunc(1)  Teammates
+VarScope(4)  MarshalJSON  Of  String  UnmarshalJSON
+VictoryFunc(1)  CheckVictory
+```
+
+### Constants (53)
+
+```
+ActionAdvanceRound  ActionClearRoundVars  CampUnspecified
+CodeGameAlreadyStarted  CodeGameEnded  CodeGameNotStarted
+CodeInvalidBoard  CodeInvalidConfig  CodeInvalidEffectLog
+CodeInvalidPhase  CodeInvalidPlayerID  CodeInvalidRole
+CodeInvalidSnapshot  CodeMessageNotAllowed  CodePlayerDead
+CodePlayerExists  CodePlayerNotFound  CodeSkillNotAllowed  CodeTargetDead
+CodeTargetNotFound  CodeUnspecified  DefaultPhaseTimeout  EventDetour
+EventGameEnded  EventGameStarted  EventGotoPhase  EventKeyActors
+EventKeyAlive  EventKeyPhase  EventKeyRole  EventKeyScope  EventKeyValue
+EventKeyVarKey  EventKeyWinner  EventPhaseChanged  EventPlayerAdded
+EventSetActors  EventSetAlive  EventSetVar  EventUnspecified  LogVersion
+MaxPendingUses  PhaseEnd  PhaseStart  PhaseUnspecified  RoleSystem
+RoleUnspecified  SkillAnnounce  SkillSkip  SkillUnspecified
+SnapshotVersion  VarCamp  VarPresent
+```
+
+### Variables (21)
+
+```
+ErrBoardAlreadyDecided  ErrGameAlreadyStarted  ErrGameEnded
+ErrGameNotStarted  ErrInvalidBoard  ErrInvalidConfig  ErrInvalidEffectLog
+ErrInvalidPhase  ErrInvalidPlayerID  ErrInvalidRole  ErrInvalidSnapshot
+ErrMessageNotAllowed  ErrNilSnapshot  ErrPlayerDead  ErrPlayerExists
+ErrPlayerNotFound  ErrSkillNotAllowed  ErrTargetDead  ErrTargetNotFound
+ScopeGame  ScopeRound
+```
 
 ## Appendix B: `enginetest` -- the test harness for rules packages
 

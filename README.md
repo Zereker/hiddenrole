@@ -131,9 +131,10 @@ func main() {
 					{Role: roleRed, Skill: skillVote, Required: true, Multiple: true},
 					{Role: roleBlue, Skill: skillVote, Required: true, Multiple: true},
 				},
-				NextPhase:       phaseVote, // a cycle: back to itself
-				EndsRound:       true,      // this phase ending is one round
-				ClearsRoundVars: true,      // and it begins from a clean board
+				NextPhase: phaseVote, // a cycle: back to itself
+				// What a transition into and out of this phase means.
+				OnExit:  []hiddenrole.PhaseAction{hiddenrole.ActionAdvanceRound},
+				OnEnter: []hiddenrole.PhaseAction{hiddenrole.ActionClearRoundVars},
 			},
 		},
 	}
@@ -208,12 +209,53 @@ Variable values are strings, and **an empty string is equivalent to deletion
 at the write point**, so a has-it/hasn't-it state needs nothing more than one
 non-empty value (`VarPresent` by convention).
 
+An effect's payload is split the same way its type is: `Effect.Args` carries
+the kernel's own primitives as typed fields, `Effect.Data` carries the rules'
+own payload as **strings**. That is what lets the effect log be written down
+and read back exactly -- see "Saving, replay and errors" below.
+
 "Wolf kill", "exile" and "shoot" are the rules' names for what happened, and
 the state machine does not recognise them -- a `KILL` effect on its own
 **kills nobody**. For the rules to eliminate someone, they emit a `SET_ALIVE`
 alongside it. Two effects, two things: the first for the audience and the
 effect log, the second for the state machine. `OUT` and `SET_ALIVE` appearing
 as a pair in the example above is exactly this.
+
+## Standing in the path of somebody else's effect
+
+`SetsAlive()` lets a rule recognise an elimination whatever caused it -- a
+wolf kill, a poisoning, a gunshot all end at the same primitive. An
+`Interceptor` is where that code runs:
+
+```go
+// The idiot survives being exiled: the card flips instead.
+hiddenrole.WithInterceptor(hiddenrole.InterceptorFunc(
+	func(ef *hiddenrole.Effect, view hiddenrole.GameView) []*hiddenrole.Effect {
+		alive, ok := ef.SetsAlive()
+		if !ok || alive {
+			return nil // no opinion; hand it back untouched
+		}
+		p, found := view.Player(ef.TargetID)
+		if !found || p.Role != roleIdiot {
+			return nil
+		}
+		return []*hiddenrole.Effect{ // replace the death with a flip
+			hiddenrole.NewEffect(eventFlip, "", p.ID),
+			hiddenrole.NewSetVarEffect(hiddenrole.ScopeGame.Of(p.ID), keyFlipped, hiddenrole.VarPresent),
+		}
+	}))
+```
+
+The rule that produced the death and the rule that objects to it share no
+code and need not know about each other. Without this the only place to stand
+was **inside the resolver that produced the effect**, which made the unit of
+authorship the phase rather than the role.
+
+It is a pipeline, deliberately not Magic's replacement-effect system: each
+interceptor sees each effect once, in registration order, and what it returns
+is what the next one sees. No priority, no stack, no layers -- it terminates
+by construction. A replaced effect stays in the log, cancelled, so the
+history records what was about to happen as well as what did.
 
 ## Who is allowed to know what
 
@@ -234,7 +276,7 @@ The player-facing `PlayerView` / `AudienceOf` and the god's-view `PhaseInfo` /
 `PlayerInfo` are two different sets of readers; do not mix them up. The first
 can be sent to a player, the second cannot.
 
-## Eight extension points
+## Nine extension points
 
 | To add | Use |
 |---|---|
@@ -245,6 +287,7 @@ can be sent to a player, the second cannot.
 | who should be told about something | `WithAudience(provider)` |
 | who is on whose side | `WithTeammates(provider)` |
 | who hears a player speak | `WithSpeech(provider)` |
+| standing in the path of somebody else's effect | `WithInterceptor(i)` |
 | logging | `WithLogger(l)` |
 
 Plus two that are not options: a state change during play goes through an
@@ -252,12 +295,14 @@ Plus two that are not options: a state change during play goes through an
 (the same single write point, but bypassing phase resolution -- a sharp
 knife).
 
-**All eight can be installed with a plain function**: `ResolverFunc` /
+**All of them can be installed with a plain function**: `ResolverFunc` /
 `VictoryFunc` / `RoleSetupFunc` / `GameSetupFunc` / `RoleInfoFunc` /
-`AudienceFunc` / `TeammateFunc` / `SpeechFunc`. The first two were added
-later -- they were the only two without an adapter, for no reason but
-history, which meant installing a three-line resolver first required
-declaring an empty struct.
+`AudienceFunc` / `TeammateFunc` / `SpeechFunc` / `InterceptorFunc`.
+
+`WithInterceptor` is the one that **appends** rather than replacing: several
+rules may each want to stand in the path, and "registering twice keeps the
+last" would silently disable one of them. They run in registration order, and
+that order is the rules' to decide.
 
 All of them can only be given at construction: once the engine is in the
 caller's hands, they no longer change. All four entry points accept them --
@@ -270,7 +315,7 @@ Two decisions about how a game proceeds have answers **only the rules know**:
 | Decision | Who decides |
 |---|---|
 | which phase comes next | `PhaseConfig.NextPhase` is the default exit; the rules can override it during resolution with `NewGotoPhaseEffect` |
-| whether a new round begins after this step | declared by `PhaseConfig.EndsRound` |
+| whether a new round begins after this step | declared by `ActionAdvanceRound` in that phase's `OnExit` |
 
 The kernel used to decide both: the exit came from a static graph, and the
 round boundary was guessed as "looping back to the start phase counts". In
@@ -299,6 +344,35 @@ round boundary are both waiting on it, and jumping away mid-queue would drop a
 death ability that was never settled. A destination absent from the
 configuration is logged as an error and falls back to the default exit.
 
+## A phase can be a group of phases
+
+The night is one thing containing four things, and the configuration can say
+so: `PhaseConfig.Parent` puts a phase inside a **compound phase**.
+
+```go
+phaseNight:      {Type: phaseNight, OnEnter: []hiddenrole.PhaseAction{hiddenrole.ActionClearRoundVars}},
+phaseNightGuard: {Type: phaseNightGuard, Parent: phaseNight, NextPhase: phaseNightWolf, ...},
+phaseNightWolf:  {Type: phaseNightWolf, Parent: phaseNight, NextPhase: phaseNightWitch, ...},
+```
+
+Entry and exit actions fire for the **group**, exactly once. Moving from
+`NIGHT_GUARD` to `NIGHT_WOLF` does not leave the night, so `NIGHT`'s
+`OnEnter` does not run again; moving from `DAY` to `NIGHT_GUARD` does, so it
+does. The rule is the one statecharts settled on: strip the groups both ends
+share, and what is left is really being left and really being entered.
+
+And the rules can ask about the group rather than about a list of its members:
+
+```go
+if view.InPhase(phaseNight) { ... } // not: phase == GUARD || phase == WOLF || ...
+```
+
+That list was the thing every new night phase silently invalidated.
+
+A compound phase is a name, not a stop: it carries no steps and no exit,
+needs no resolver, and nothing transitions to it. `Validate` enforces all of
+that, along with rejecting a cycle.
+
 ## Who may act in this phase
 
 Two layers, highest priority first:
@@ -325,7 +399,7 @@ able to act.
 
 ## Extension points must not call back into the engine
 
-All eight extension points are called synchronously **while the engine holds
+All nine extension points are called synchronously **while the engine holds
 its lock**. Calling any `Engine` method from inside one **hangs**, it does not
 error -- Go's RWMutex is not reentrant, and that game stops responding for
 good.
@@ -384,17 +458,38 @@ cells.
 ## Saving, replay and errors
 
 ```go
-snap := e.Snapshot()                                   // plain data, json.Marshal it directly
-e2, err := hiddenrole.RestoreEngine(cfg, snap, opts...) // the options must match those used to create the game
+log := e.Log()                                        // the durable record; json.Marshal it
+e2, err := hiddenrole.ReplayEngine(cfg, log, opts...) // rebuild from history
 
-log := e.EffectLog()                                   // the complete effect log since the game was created
-e3, err := hiddenrole.ReplayEngine(cfg, log, opts...)  // rebuild from the log
+snap := e.Snapshot()                                   // the board, plus the log that produced it
+e3, err := hiddenrole.RestoreEngine(cfg, snap, opts...) // the options must match those used to create the game
 ```
 
-The effect log is **history**, a snapshot is **state**: persist with
-`Snapshot`, and use `EffectLog` for in-process replay, post-game analysis and
-investigation. A snapshot carries a version (`SnapshotVersion`), and a format
-it does not understand is explicitly rejected rather than guessed at.
+**The log is the source of truth; the board is a cache.** A `Snapshot`
+carries the `GameLog` that produced it, and everything else in it can be
+recomputed by replaying that log -- which is exactly what `RestoreEngine`
+does when it meets a board section this build cannot read:
+
+| | |
+|---|---|
+| `Version` recognised | read the board directly, and adopt the log as history |
+| `Version` not recognised | ignore the board and replay the log instead |
+
+So a `SnapshotVersion` bump is no longer a cliff. It used to be: the board
+was the only thing that could be written down, and the number has moved
+thirteen times. Derived data does not need a migration -- it needs to be
+thrown away and recomputed. (One thing is lost on that path: skills submitted
+and not yet resolved were never in the log, so a game rebuilt this way
+resumes at the start of its current phase.)
+
+This is why an effect's payload is typed. `Effect.Data` used to be
+`map[string]interface{}`, so a `PhaseType` went in and a string came back,
+and the replay path's assertions failed on any log that had ever touched
+storage -- the history was, in practice, not durable. Now `Effect.Args`
+carries the kernel's primitives as typed fields and `Effect.Data` carries the
+rules' payload as strings, and `enginetest`'s replay invariant round-trips
+the log through JSON **before** replaying it, so "it replays" means "it
+replays after being written down".
 
 Errors all carry a code, and both `errors.Is` and `HasCode` classify them:
 

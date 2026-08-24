@@ -82,7 +82,8 @@
 //	which phase comes next    PhaseConfig.NextPhase is the default exit;
 //	                          rules may rewrite it during resolution with
 //	                          NewGotoPhaseEffect
-//	is this a new round       declared by PhaseConfig.EndsRound
+//	is this a new round       declared by ActionAdvanceRound in that
+//	                          phase's OnExit
 //
 // Both used to be the kernel's own calls: the exit came from a static graph,
 // and the round boundary was guessed as "we looped back to the start phase".
@@ -101,6 +102,43 @@
 // first because the queue must drain — both victory checking and the round
 // boundary are waiting on it.
 //
+// A phase may sit inside a compound phase (PhaseConfig.Parent). Entry and
+// exit actions then fire for the group exactly once, by the statechart rule:
+// strip the groups both ends share, and what is left is really being left and
+// entered. So moving between two phases of one night does not leave the
+// night, and "the night begins from a clean board" is declared once on the
+// group. GameView.InPhase asks about a group rather than about a list of its
+// members.
+//
+// # Reacting to another rule's effect
+//
+// An Interceptor stands between an effect and the write point, and is offered
+// every effect whoever produced it. Returning nil is "no opinion"; returning
+// a slice replaces the effect with those effects, and the original stays in
+// the log, cancelled, so the history records what was about to happen as well
+// as what did.
+//
+// It exists because Effect.SetsAlive was documented as the hook for
+// intercepting a death — written once, independent of the cause — and there
+// was nowhere for that code to run: effects went from a phase's Resolver
+// straight to the write point, so the only place to stand was inside that
+// Resolver. It is a pipeline, deliberately not a replacement-effect system:
+// each interceptor sees each effect once in registration order, and its
+// output is what the next one sees, so it terminates by construction.
+//
+// # History is the durable record
+//
+// Engine.Log returns a GameLog: plain data, safe to marshal, and what
+// ReplayEngine rebuilds from. Snapshot carries the board plus the log that
+// produced it, and RestoreEngine reads the board when it recognises the
+// version and replays the log when it does not — so the board is a cache and
+// a format change costs a slower restore rather than a generation of saves.
+//
+// This is why an effect's payload has a type. Effect.Args carries the
+// kernel's primitives as typed fields and Effect.Data carries the rules'
+// payload as strings; a map[string]interface{} degraded on a JSON round trip,
+// which made the history undurable in practice.
+//
 // Giving up the decision bought back checkability: while the kernel was
 // guessing the round boundary it could not check whether the guess was right;
 // once the rules declare it, Config.Validate can. A looping config that
@@ -110,9 +148,9 @@
 //
 // # Extension points must not call back into the engine
 //
-// The eight extension points — Resolver, VictoryChecker, AudienceProvider,
-// TeammateProvider, SpeechProvider, RoleInfoProvider, RoleSetup, GameSetup —
-// are all invoked synchronously while the engine holds its lock. Calling any
+// The nine extension points — Resolver, VictoryChecker, AudienceProvider,
+// TeammateProvider, SpeechProvider, RoleInfoProvider, RoleSetup, GameSetup,
+// Interceptor — are all invoked synchronously while the engine holds its lock. Calling any
 // Engine method from inside one hangs the game; it does not return an error.
 // Go's RWMutex is not reentrant, and that game stops responding for good.
 //

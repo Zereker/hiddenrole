@@ -63,8 +63,9 @@ func TestAPI_SurfaceIsPinned(t *testing.T) {
 		"This is not an error, it is a reminder: the exported surface is what "+
 		"API.md declares frozen.\n"+
 		"Confirm the change is intended, then do two things together --\n"+
-		"  1. go test ./engine -run %s -update-api-golden\n"+
-		"  2. update API.md (the body and Appendix A)",
+		"  1. go test . -run %s -update-api-golden\n"+
+		"  2. update API.md (the body; Appendix A is checked by "+
+		"TestAPI_AppendixMatchesTheGolden, which will tell you exactly what to add)",
 		added, removed, t.Name())
 }
 
@@ -315,4 +316,97 @@ func diffLines(want, got string) (added, removed []string) {
 	sort.Strings(added)
 	sort.Strings(removed)
 	return added, removed
+}
+
+// TestAPI_AppendixMatchesTheGolden ties Appendix A of API.md to the golden
+// file.
+//
+// The two were kept in step **by remembering to**: the golden test's failure
+// message said "now update API.md", and nothing checked that anybody had.
+// That is the same wound this project keeps diagnosing elsewhere -- a rule
+// guarded by no test is only a sentence -- and it sat in the middle of the
+// document that declares the API frozen.
+//
+// It compares names only, not signatures. The golden file holds the
+// signatures and is the baseline; Appendix A is a readable index of it, and
+// asking a prose document to reproduce Go syntax exactly would make it fail
+// for reasons nobody cares about.
+func TestAPI_AppendixMatchesTheGolden(t *testing.T) {
+	golden := map[string]bool{}
+	for _, line := range exportedNames(t) {
+		kind, rest, _ := strings.Cut(line, " ")
+		if kind == "iface" {
+			continue // interface methods are listed with their interface
+		}
+		if strings.HasPrefix(rest, "enginetest.") {
+			continue // Appendix B covers the sub-package
+		}
+		name, _, _ := strings.Cut(rest, "(")
+		name, _, _ = strings.Cut(name, " ")
+		if recv, method, ok := strings.Cut(name, "."); ok {
+			name = recv + "." + method
+		}
+		golden[name] = true
+	}
+
+	doc, err := os.ReadFile("API.md")
+	if err != nil {
+		t.Fatalf("reading API.md: %v", err)
+	}
+	listed := appendixNames(string(doc))
+	if len(listed) == 0 {
+		t.Fatal("Appendix A of API.md lists nothing; has its layout changed?")
+	}
+
+	for name := range golden {
+		if !listed[name] {
+			t.Errorf("%s is exported but missing from Appendix A of API.md", name)
+		}
+	}
+	for name := range listed {
+		if !golden[name] {
+			t.Errorf("Appendix A of API.md lists %s, which is not exported", name)
+		}
+	}
+}
+
+// appendixNames reads the names out of Appendix A's code blocks.
+//
+// The methods block lists them as "Receiver(N)  M1  M2", so a receiver
+// contributes Receiver.M1 and Receiver.M2 rather than a name of its own.
+func appendixNames(doc string) map[string]bool {
+	start := strings.Index(doc, "## Appendix A")
+	if start < 0 {
+		return nil
+	}
+	section := doc[start:]
+	if end := strings.Index(section, "## Appendix B"); end > 0 {
+		section = section[:end]
+	}
+
+	out := map[string]bool{}
+	inBlock := false
+	receiver := ""
+	for _, line := range strings.Split(section, "\n") {
+		if strings.HasPrefix(line, "```") {
+			inBlock = !inBlock
+			receiver = ""
+			continue
+		}
+		if !inBlock || strings.TrimSpace(line) == "" {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			if name, count, ok := strings.Cut(field, "("); ok && strings.HasSuffix(count, ")") {
+				receiver = name // "Engine(23)" opens a receiver's method list
+				continue
+			}
+			if receiver != "" {
+				out[receiver+"."+field] = true
+				continue
+			}
+			out[field] = true
+		}
+	}
+	return out
 }
