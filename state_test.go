@@ -228,7 +228,7 @@ func TestNextPhase_ToDay(t *testing.T) {
 	state.Phase = phaseNight
 	state.Round = 1
 
-	state.enterPhase(state.Phase, phaseDay, true, &phaseTree{}) // no actions declared either side
+	state.enterPhase(state.Phase, phaseDay, &phaseTree{}) // no actions declared either side
 
 	if state.Phase != phaseDay {
 		t.Errorf("expected Phase=DAY, got %v", state.Phase)
@@ -246,10 +246,9 @@ func TestNextPhase_ToNightGuard_IncrementsRound(t *testing.T) {
 	state.Phase = phaseVote
 	state.Round = 1
 
-	// The second argument is "was the phase just resolved the end of this
-	// round", declared by PhaseConfig.EndsRound -- the kernel no longer
-	// guesses it from the phase cycle.
-	state.enterPhase(state.Phase, phaseNightGuard, true, testTree())
+	// VOTE declares ActionAdvanceRound on the way out and NIGHT declares
+	// ActionClearRoundVars on the way in, so this one transition does both.
+	state.enterPhase(state.Phase, phaseNightGuard, testTree())
 
 	if state.Phase != phaseNightGuard {
 		t.Errorf("expected Phase=NIGHT_GUARD, got %v", state.Phase)

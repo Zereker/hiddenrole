@@ -200,8 +200,7 @@ func (e *Engine) replayEffect(effect *Effect) error {
 		// normal progression, so the entry and exit actions of every phase on
 		// the way -- compound phases included -- fire identically.
 		e.state.leavePhase()
-		settled := !e.state.hasPendingDetour()
-		e.transition(phase, settled)
+		e.transition(phase)
 
 	case EventGameEnded:
 		// Ending also leaves the current phase -- on the normal path
@@ -209,7 +208,7 @@ func (e *Engine) replayEffect(effect *Effect) error {
 		// or not. Miss it and the replayed engine carries the last phase's
 		// actor list and an unconsumed detour, and diverges from the original.
 		e.state.leavePhase()
-		e.transition(PhaseEnd, false) // the game ends; this is not a new round
+		e.transition(PhaseEnd)
 		// The winner travels in the log. Who won was decided by the
 		// VictoryChecker at the moment the game ended, and replay does not run
 		// the check again -- without reading it the replayed engine has

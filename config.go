@@ -109,6 +109,36 @@ var knownActions = map[PhaseAction]bool{
 	ActionClearRoundVars: true,
 }
 
+// heldByPendingDetour lists the actions that must not run while a detour is
+// still owed, and it is the **one** place this machine departs from the
+// transition semantics it otherwise follows (see phaseTree.transitionSets).
+// Standard semantics run every exit and entry action of every phase actually
+// left and entered; here one action is held back.
+//
+// There is exactly one mechanical reason, and it applies to exactly one
+// action: the pending detour queue lives **inside** the round context, so
+// clearing round state would erase a debt that was never settled and the
+// exiled hunter's shot would vanish. Two detours pointing at the same phase
+// make it reachable -- the machine re-enters that phase to drain the second,
+// and if it declared "begin from a clean board" it would wipe the queue on
+// the way in.
+//
+// This table used to be a blanket condition instead. Both actions were
+// skipped whenever a detour was pending, on the strength of that one reason
+// -- which does not hold for counting: the round number has nothing to do
+// with the queue. The counter was collateral, and because the phase that
+// declares the increment is never exited a second time, the increment was
+// **dropped rather than deferred**: a round in which anybody took a death
+// detour did not advance the counter at all. Rules packages compensated by
+// declaring the increment on every phase the flow might leave through, which
+// is the kernel being one step short and the rules making up the difference.
+//
+// Any action added later runs by default. Being held is a claim about
+// interfering with the queue, and a new action has to earn its place here.
+var heldByPendingDetour = map[PhaseAction]bool{
+	ActionClearRoundVars: true,
+}
+
 // PhaseConfig configures one phase.
 //
 // A phase is either a **leaf** -- somewhere the machine actually stops, with

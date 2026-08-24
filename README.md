@@ -359,7 +359,11 @@ Entry and exit actions fire for the **group**, exactly once. Moving from
 `NIGHT_GUARD` to `NIGHT_WOLF` does not leave the night, so `NIGHT`'s
 `OnEnter` does not run again; moving from `DAY` to `NIGHT_GUARD` does, so it
 does. The rule is the one statecharts settled on: strip the groups both ends
-share, and what is left is really being left and really being entered.
+share, and what is left is really being left and really being entered. For
+the shape this kernel supports, those are the same sets W3C SCXML computes
+for an external transition -- there are no parallel regions, no history
+states, and no transition content here, and one action is deliberately held
+back while a death detour is outstanding (see `heldByPendingDetour`).
 
 And the rules can ask about the group rather than about a list of its members:
 

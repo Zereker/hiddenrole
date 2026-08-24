@@ -377,33 +377,32 @@ func (e *Engine) advancePhase() (phaseOutcome, error) {
 		nextPhase = PhaseEnd
 	}
 
-	// 5. Transition. END goes through nextPhase too rather than assigning
-	//    Phase directly -- every change to state takes one path, so nothing
+	// 5. Transition. END goes through the same path rather than assigning
+	//    Phase directly -- every change to state takes one route, so nothing
 	//    elsewhere can miss the logic that goes with it.
 	//
-	//    The round boundary and the victory check guard the same condition:
-	//    **neither may fall while a detour is still pending**. The reasons
-	//    differ but both are hard: victory because a detour may turn the game
-	//    around; the round boundary because the pending queue itself lives in
-	//    the round context, so clearing round state erases the queue and the
-	//    exiled hunter's shot vanishes into thin air.
+	//    Only **one** thing is held back while a detour is still owed, and it
+	//    is held for a mechanical reason: the pending queue lives inside the
+	//    round context, so clearing round state would erase a debt that was
+	//    never settled and the exiled hunter's shot would vanish. The round
+	//    counter is not held -- it has nothing to do with the queue, and
+	//    holding it dropped the increment outright, because the phase that
+	//    declares it is never left a second time. See heldByPendingDetour.
 	//
-	//    The end of the game is not a new round: nothing follows END, and an
-	//    extra increment would make replay disagree (on the replay path
-	//    GAME_ENDED goes through nextPhase(PhaseEnd, false, false)).
+	//    The victory check above guards a **different** condition on the same
+	//    fact: a detour may turn the game around, so the outcome is not
+	//    settled until the queue drains. Two guards, two reasons; they were
+	//    one boolean, which is what let the round counter be lost as
+	//    collateral of the queue's problem.
 	//
-	//    "Round number +1" and "round variables cleared" are two things,
-	//    computed separately: most boards mark them on the same phase
-	//    (EndsRound implies clearing), and a finer variable lifetime is
-	//    marked with ClearsRoundVars on its own -- the missions package's
-	//    team markers live until the next nomination while the round number
-	//    tracks which mission it is, and the two do not coincide.
+	//    Exit actions belong to the phase being left and entry actions to the
+	//    one being entered -- "my ending is a round" against "I begin from a
+	//    clean board". Compound phases fire theirs once for the group.
 	//
-	//    Counting looks at the phase **just ended**, clearing looks at the
-	//    phase **being entered** -- the former says "my ending is a round",
-	//    the latter says "I begin from a clean board".
-	settled := !endNow && !e.state.hasPendingDetour()
-	e.transition(nextPhase, settled)
+	//    Both this path and log replay call transition, and neither is told
+	//    whether a debt is outstanding -- enterPhase reads it -- so they
+	//    cannot disagree about what ran.
+	e.transition(nextPhase)
 
 	if endNow {
 		// The end event is built along the same path as every other event,
@@ -449,15 +448,13 @@ const MaxPendingUses = 4096
 // one, and each time the divergence was caught only by the random-game
 // invariants. Whatever a transition entails, it is written here once.
 //
-// settled says the board is at rest: no detour is still pending and the game
-// is not ending on this step. Round bookkeeping is held back while it is
-// false, because the pending queue lives in the round context and clearing
-// round state would erase a debt that was never settled.
+// Whether a detour is still owed is read from the state inside enterPhase,
+// so neither caller can get it wrong or disagree with the other.
 //
 // The caller must hold e.mu.
-func (e *Engine) transition(to PhaseType, settled bool) {
+func (e *Engine) transition(to PhaseType) {
 	from := e.state.Phase
-	e.state.enterPhase(from, to, settled, e.phase.tree)
+	e.state.enterPhase(from, to, e.phase.tree)
 }
 
 // EndPhase ends the current phase: resolve the skills, apply the effects,

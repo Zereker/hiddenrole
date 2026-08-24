@@ -163,14 +163,22 @@ Translated into the vocabulary of Harel statecharts / W3C SCXML:
 |---|---|
 | `NextPhase` | default transition |
 | `GOTO_PHASE` | guarded transition |
-| the detour queue | **deferred / internal event queue** |
 | `ClearsRoundVars` | onentry action |
 | `EndsRound` | onexit action |
 | the four `NIGHT_*` phases | a **compound state**, here flattened |
 
-The semantics arrived at are correct -- detour outranks goto outranks the
-default exit is exactly SCXML's ordering -- and they were arrived at by being
-burned, which is the honest way. The note is about trajectory: each new
+*(An earlier draft of this table also mapped the detour queue onto "SCXML's
+deferred / internal event queue". That was wrong twice over and is withdrawn:
+SCXML has internal and external event queues but **no defer mechanism at all**
+-- deferred events are UML state machines, not SCXML -- and a detour changes
+where the machine goes rather than which event it processes next. It has no
+close statechart counterpart; it is a queue of outstanding obligations.)*
+
+The semantics arrived at are largely standard, and they were arrived at by
+being burned, which is the honest way. Exit priority is this project's own
+invention rather than anything SCXML specifies -- SCXML selects among
+conflicting transitions by document order, not by a queue outranking an
+effect. The note is about trajectory: each new
 requirement has so far added one more boolean to `PhaseConfig`, and the
 interaction *between* those booleans has no home other than prose. Today that
 prose is the comment above `settled := !endNow && !e.state.hasPendingDetour()`
@@ -377,6 +385,31 @@ and `GameView.InPhase(NIGHT)` replaces enumerating its members.
 The review did **not** recommend adopting statecharts, and this is not that.
 There is no hierarchy of transitions, no parallel regions, no history states.
 What was taken is the one rule that makes grouping mean anything.
+
+Asked afterwards whether any of SCXML's defined semantics had been altered,
+the answer turned out to be **yes, in one place** -- and finding it was worth
+more than the question suggested. The exit and entry sets computed here are
+the ones SCXML computes for an external transition, and everything else
+missing is a subset rather than a variation. But a condition inherited from
+the old code skipped **every** action while a death detour was outstanding,
+where the reason for skipping applied to only one of them: the pending queue
+lives in the round context, so clearing it destroys a debt, while the round
+counter has nothing to do with the queue.
+
+Because the phase that declares the increment is never left a second time,
+holding it **dropped** it rather than deferring it: a round in which anybody
+took a death detour did not advance the counter at all. Rules packages had
+compensated by declaring the increment on every phase the flow might leave
+through, which is the kernel being one step short and the rules making up the
+difference -- the pattern this project keeps diagnosing. The condition is now
+one table, `heldByPendingDetour`, naming the single action that must wait and
+why; and it is read inside `enterPhase` rather than passed in, so the live
+path and replay cannot compute it differently. Three tests pin it.
+
+Generalising the two booleans into an open action list is what made the old
+condition visible: as a blanket rule it silently applied to any action added
+later, which is a much larger claim than the two round-bookkeeping flags it
+was written for.
 
 **§5, the three invariants.** All three now hold and are tested: `clone` deep
 -copies the payload, `SubmitSkillUse` stores a copy and rejects nil, and

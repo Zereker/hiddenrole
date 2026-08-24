@@ -105,7 +105,10 @@
 // A phase may sit inside a compound phase (PhaseConfig.Parent). Entry and
 // exit actions then fire for the group exactly once, by the statechart rule:
 // strip the groups both ends share, and what is left is really being left and
-// entered. So moving between two phases of one night does not leave the
+// entered. This matches SCXML's external-transition sets for the shape
+// supported here; parallel regions, history states and transition content are
+// simply absent, and one action is held back while a death detour is
+// outstanding (see heldByPendingDetour). So moving between two phases of one night does not leave the
 // night, and "the night begins from a clean board" is declared once on the
 // group. GameView.InPhase asks about a group rather than about a list of its
 // members.

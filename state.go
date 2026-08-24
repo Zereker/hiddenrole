@@ -507,26 +507,29 @@ func (s *gameState) leavePhase() {
 // once on NIGHT rather than on whichever of its members happens to come
 // first.
 //
-// settled says the board is at rest. While it is false -- a detour is still
-// pending, or the game is ending on this step -- **no action runs at all**.
-// Both of the actions there are do round bookkeeping, and the pending detour
-// queue itself lives in the round context: clearing it would erase a debt
-// that was never settled, and the exiled hunter's shot would vanish.
-func (s *gameState) enterPhase(from, to PhaseType, settled bool, tree *phaseTree) {
+// Whether a detour is still owed is read from the state here rather than
+// passed in. It used to be a parameter, computed identically by the live path
+// and by log replay -- two expressions that had to stay equal for the two to
+// agree, which is the shape that had already drifted three times in this
+// file. Reading it at the one place that uses it makes agreement structural.
+// (It is also a parameter that had just been inverted, from "the board is at
+// rest" to "a debt is outstanding", and a caller passing the old sense would
+// have compiled and quietly done the opposite.)
+//
+// One action is held while a debt is outstanding; everything else runs. See
+// heldByPendingDetour for why that is one action and not a blanket rule.
+func (s *gameState) enterPhase(from, to PhaseType, tree *phaseTree) {
+	detourPending := s.hasPendingDetour()
 	exiting, entering := tree.transitionSets(from, to)
 
-	if settled {
-		for _, phase := range exiting {
-			s.runActions(tree.onExit[phase])
-		}
+	for _, phase := range exiting {
+		s.runActions(tree.onExit[phase], detourPending)
 	}
 
 	s.Phase = to
 
-	if settled {
-		for _, phase := range entering {
-			s.runActions(tree.onEnter[phase])
-		}
+	for _, phase := range entering {
+		s.runActions(tree.onEnter[phase], detourPending)
 	}
 
 	s.nameDetourActor()
@@ -536,8 +539,11 @@ func (s *gameState) enterPhase(from, to PhaseType, settled bool, tree *phaseTree
 //
 // An action the kernel does not recognise is impossible here: Validate
 // rejects one at construction, which is the whole reason the set is closed.
-func (s *gameState) runActions(actions []PhaseAction) {
+func (s *gameState) runActions(actions []PhaseAction, detourPending bool) {
 	for _, a := range actions {
+		if detourPending && heldByPendingDetour[a] {
+			continue
+		}
 		switch a {
 		case ActionAdvanceRound:
 			s.Round++

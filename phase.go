@@ -309,6 +309,32 @@ func (t *phaseTree) contains(outer, inner PhaseType) bool {
 // entered. Moving between two phases of the same night does not leave the
 // night; moving out of the last one does.
 //
+// # How far the correspondence actually goes
+//
+// For the shape this kernel supports, the sets computed here are the same
+// ones W3C SCXML computes for an external transition. Its algorithm takes
+// findLCCA([source] + targets) as the transition domain and exits every
+// active proper descendant of it; because findLCCA walks **proper**
+// ancestors, a transition to the phase you are already in exits and re-enters
+// it -- which is exactly why the strip above is of strict ancestors only, and
+// what the README's single-phase cycle depends on. Exit innermost-first and
+// entry outermost-first match its exit and entry orders too.
+//
+// The rest is deliberately a subset, not a variation. There are no parallel
+// regions, no history states, no internal-versus-external transition types,
+// and no executable content attached to a transition. A compound phase can
+// never be a transition target either, so nothing here has to pick an
+// initial child; Validate rejects that at construction instead.
+//
+// One thing is a genuine departure rather than an omission, and it is
+// deliberately kept in one place: see heldByPendingDetour. Standard semantics
+// run every action of every phase actually left and entered, and this machine
+// holds one of them back while a debt is outstanding.
+//
+// Which transition is taken is this project's own, and owes SCXML nothing:
+// the detour queue outranks GOTO_PHASE, which outranks NextPhase. SCXML
+// resolves competing transitions by document order.
+//
 //	NIGHT_GUARD -> NIGHT_WOLF   exit [NIGHT_GUARD]         enter [NIGHT_WOLF]
 //	NIGHT_SEER  -> DAY          exit [NIGHT_SEER, NIGHT]   enter [DAY]
 //	VOTE        -> NIGHT_GUARD  exit [VOTE]                enter [NIGHT, NIGHT_GUARD]

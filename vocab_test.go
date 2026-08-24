@@ -98,7 +98,12 @@ func testConfig() *Config {
 			phaseNightHunter:  night(&PhaseConfig{Type: phaseNightHunter, Steps: []PhaseStep{{Role: roleHunter, Skill: skillShoot, Group: "shoot"}, {Role: roleHunter, Skill: SkillSkip, Group: "shoot"}}, NextPhase: phaseDay}),
 			phaseDay:          {Type: phaseDay, NextPhase: phaseVote},
 			phaseVote:         {Type: phaseVote, Steps: []PhaseStep{{Role: RoleUnspecified, Skill: skillVote, Required: true, Multiple: true}}, NextPhase: phaseNightGuard, OnExit: []PhaseAction{ActionAdvanceRound}},
-			phaseDayHunter:    {Type: phaseDayHunter, Steps: []PhaseStep{{Role: roleHunter, Skill: skillShoot, Group: "shoot"}, {Role: roleHunter, Skill: SkillSkip, Group: "shoot"}}, NextPhase: phaseNightGuard, OnExit: []PhaseAction{ActionAdvanceRound}},
+			// No ActionAdvanceRound here. It used to be declared on both this
+			// phase and VOTE, because leaving VOTE with a detour pending
+			// dropped the increment and the board had to make it up on the
+			// way out of the detour. The kernel no longer drops it, so
+			// declaring it twice would count the round twice.
+			phaseDayHunter: {Type: phaseDayHunter, Steps: []PhaseStep{{Role: roleHunter, Skill: skillShoot, Group: "shoot"}, {Role: roleHunter, Skill: SkillSkip, Group: "shoot"}}, NextPhase: phaseNightGuard},
 		},
 	}
 }

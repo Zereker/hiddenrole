@@ -180,7 +180,8 @@ kernel does not recognise is rejected instead of being silently ignored.
 
 **A compound phase is a name for a group.** `Parent` puts a phase inside one;
 entry and exit actions then fire for the group exactly once, using the
-statechart rule -- strip the groups both ends share, and what is left is
+statechart rule (the same sets SCXML computes for an external transition)
+-- strip the groups both ends share, and what is left is
 really being left and entered. So `NIGHT_GUARD -> NIGHT_WOLF` does not leave
 `NIGHT`, and `VOTE -> NIGHT_GUARD` enters it. A compound phase carries no
 steps and no exit, needs no resolver, and nothing may transition to it;

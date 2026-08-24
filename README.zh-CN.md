@@ -321,7 +321,10 @@ phaseNightWolf:  {Type: phaseNightWolf, Parent: phaseNight, NextPhase: phaseNigh
 进入与离开的动作是针对**这一组**触发的，且只触发一次。从 `NIGHT_GUARD`
 走到 `NIGHT_WOLF` 并没有离开夜晚，所以 `NIGHT` 的 `OnEnter` 不会再跑一遍；
 从 `DAY` 走到 `NIGHT_GUARD` 才算进入夜晚，于是它才跑。规则就是状态图那一条：
-把两端**共有**的组去掉，剩下的才是真正被离开和真正被进入的。
+把两端**共有**的组去掉，剩下的才是真正被离开和真正被进入的。就本内核支持的
+形状而言，这与 W3C SCXML 为 external transition 算出的集合一致——这里没有
+并行区域、没有历史状态、也没有挂在转移上的可执行内容，另有一个动作在死亡
+detour 未结清时被刻意扣住（见 `heldByPendingDetour`）。
 
 规则也能直接问这一组，而不是问它的成员清单：
 
