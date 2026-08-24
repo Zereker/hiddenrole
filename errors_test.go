@@ -191,4 +191,3 @@ func TestStart_BoardAlreadyDecided_MatchesItsOwnSentinel(t *testing.T) {
 		t.Errorf("and carry CodeInvalidBoard, got %v", CodeOf(err))
 	}
 }
-

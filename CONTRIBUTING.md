@@ -201,10 +201,16 @@ went unnoticed. None of that is readable from the diff.
 
 ## Compatibility
 
-**Since v1.5.0 the exported API is a promise.** A breaking change needs a
-major version, and by Go's module rules that means changing the module path
-(`/v2`), which changes every user's imports. That cost is kept on purpose: it
-makes "should we break this" a question that has to be answered seriously.
+**The exported API is a promise.** A breaking change needs a major version,
+and by Go's module rules that means changing the module path (`/v2`), which
+changes every user's imports. That cost is kept on purpose: it makes "should
+we break this" a question that has to be answered seriously.
+
+This rule was already written here when v1.6.0 removed thirteen exported names
+from the kernel on the v1 line anyway. A rule in a contributing guide is not
+enforced by anything, which is the same failure mode as a rule that lives only
+in a comment. The queue, and what has to be true before a major version ships,
+are in [`STABILITY.md`](STABILITY.md).
 
 So: first work out whether you can avoid breaking anything. An extra option, a
 new function, an interface wrapper with a default implementation -- one of

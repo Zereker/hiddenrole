@@ -17,6 +17,13 @@ sharing an import path must be compatible, and a `go get -u` must never break
 a build. Shipping v1.5 -> v1.6 with removals broke that rule. Nobody outside
 this repository is known to have been hit, which is luck, not a defence.
 
+This is not a rule the project failed to know about.
+[CONTRIBUTING.md](CONTRIBUTING.md) already said "a breaking change needs a
+major version, and by Go's module rules that means changing the module path"
+while that release was being prepared. A rule written only in a guide is
+enforced by nobody -- the same failure mode this project names elsewhere as
+"a rule cannot live only in a comment".
+
 **The API is not frozen.** It is a v1 surface carrying known debt, with the
 next breaking batch queued for a major version.
 

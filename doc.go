@@ -7,7 +7,14 @@
 //
 // A concrete rule set (roles, skills, ways to die, victory, information
 // boundaries) comes from a rules package, installed entirely through public
-// constructor options. github.com/Zereker/hiddenrole/example/werewolf was the first such package,
+// constructor options.
+//
+// What it is for, and what it leaves to you: it adjudicates — who may act,
+// what the board becomes, who is entitled to know it. It is not a game and
+// not a server. There is no clock, no socket and no storage here, so the
+// host still writes when a phase ends, how players are connected, and where
+// any of it is kept. See POSITIONING.md in the repository for who this fits
+// and what it is measured against, and STABILITY.md for what may change. github.com/Zereker/hiddenrole/example/werewolf was the first such package,
 // and that it uses no back door is checkable: in this package's non-test
 // sources RoleType has exactly two values (RoleUnspecified, RoleSystem),
 // PhaseType three and SkillType three, all in types.go. Not one "Witch",

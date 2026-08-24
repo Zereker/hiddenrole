@@ -63,8 +63,8 @@ is a compile error rather than a bug report from a player who saw the wolf
 roster.
 
 [`example/werewolf/netserver`](example/werewolf/netserver) is the whole wiring
-in about 400 lines: receive an event, ask `AudienceOf` who should get it,
-write to those connections.
+in under 600 lines, connection handling and reconnection included: receive an
+event, ask `AudienceOf` who should get it, write to those connections.
 
 ### 3.2 A simulation or agent harness
 
@@ -85,8 +85,8 @@ rulesets do, or roll in the host and feed the result in as a skill submission.
 ### 3.3 Someone reading how a general kernel gets derived
 
 Not a user, but an honest audience, and given the ratio of prose to code
-(roughly 370 KB of documentation to 5,400 lines of kernel) arguably the one
-the repository is currently best at serving. The interesting documents are the
+(400 KB of documentation to 5,500 lines of kernel) arguably the one the
+repository is currently best at serving. The interesting documents are the
 ones that record being wrong: the [scars](example/onenight/SCARS.md) a ruleset
 left, the "we judged this a gap and the evidence came back backwards" entry,
 the feature added from a comparison table and deleted for having no users.
@@ -134,10 +134,30 @@ still does not know which game it is running.** Open Mafia Engine has the first
 without the second (its engine knows what a faction is); boardgame.io has the
 second without the first (concealment is a function you are handed a blank for).
 
-In Go, a search of the ecosystem turns up neither -- no general turn-based
-state kernel and no hidden-role engine. **That is the actual opening**, and it
-is a narrow one: it is a bet that somebody wants to build this class of game
-in Go, not a bet that this design beats the others.
+### In Go specifically
+
+Go is not empty here, and the first draft of this document said it was. There
+are general turn-based scaffolds -- [jkomoros/boardgame](https://github.com/jkomoros/boardgame)
+(a framework for board-game web apps) and
+[quibbble/go-boardgame](https://github.com/quibbble/go-boardgame) (scaffolding
+for board and turn-based games) among them. Neither is hidden-role shaped:
+they are the same column as boardgame.io, where concealment is something the
+game author is handed a blank for.
+
+So the accurate claim is narrower than "nothing exists": **in Go there is
+general turn-based scaffolding, and no domain-shaped engine for hidden-role
+play** -- no Go equivalent of Open Mafia Engine, and nothing that treats
+"who may know what" as its own subsystem.
+
+That is the opening, and it is a narrow one. It is a bet that somebody wants
+to build this class of game in Go, not a bet that this design beats the
+others.
+
+*(Method: boardgame.io was read end to end and compared file by file --
+see [PRIOR-ART.md](PRIOR-ART.md). The others in this section were identified
+by search and read only at the level of their documentation. Anything said
+about them here is at that depth, and a claim about them is worth exactly
+that much.)*
 
 ---
 
@@ -151,7 +171,7 @@ know before adopting:
 | **maturity** | the kernel carries three unrelated rulesets, the third of which forced zero exported-name changes. That is real evidence of generality, and it is the only evidence there is |
 | **users** | every user this repository can name is **inside this repository**. There is no external adopter to point at, no production deployment, no issue tracker full of other people's edge cases |
 | **stability** | the API is **not frozen**. It was declared frozen once, and breaking changes shipped inside `v1` afterwards, which is not something Go's import compatibility rule allows. The policy that replaces the declaration is in [STABILITY.md](STABILITY.md) |
-| **the docs-to-code ratio** | around 370 KB of prose against 5,400 lines of kernel. Some of that is the product (§3.3); some of it is a reader having to get through an essay before learning that this does not do networking. The README is being pulled back towards the second reading |
+| **the docs-to-code ratio** | 400 KB of prose against 5,500 lines of kernel. Some of that is the product (§3.3); some of it is a reader having to get through an essay before learning that this does not do networking. The README now opens with what the kernel gives you and what you still have to write, which is the smallest version of the fix |
 | **known gaps** | victory resolves to a single `Camp` (One Night's tanner has run into it); a skill's target must be a player ID (looking at a centre card has run into it); aliveness is a privileged bit rather than a canonical key. Each is recorded with its trigger condition in [DESIGN.md §8](DESIGN.md) |
 
 ### On the three rulesets under `example/`
@@ -164,6 +184,14 @@ implemented from public sources cited in each package, with no text copied.
 
 **This project is not affiliated with, or endorsed by, the publishers of those
 games.**
+
+One tension is worth naming rather than hiding: `example/` says "toy", and
+these three are not. They are the generality evidence the whole design rests
+on, the only worked references for writing a fourth, and -- for anyone who
+actually wants to run a game of Werewolf -- the usable artifact. A directory
+called `example/` tells a reader the opposite of all three. Renaming it costs
+every importer of those packages an edit, which is why it has not been done
+here; it is a decision for whoever owns the repository, not a detail.
 
 ---
 
