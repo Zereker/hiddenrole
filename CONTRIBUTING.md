@@ -51,7 +51,7 @@ packages**. **That table may only get shorter.**
 ## A change has to be verified against all three rules packages
 
 The kernel and the three rules packages live in one module, in four separate
-packages: the kernel at the root, the games under [`games/`](games). A kernel
+packages: the kernel at the root, the games under [`example/`](example). A kernel
 change **must** be run against all three (they are the only evidence of
 generality), along with each of their random games (`RunFuzz`, 5000 games
 across the three) -- which is what `go test ./...` does.
@@ -60,27 +60,27 @@ Being one module changes nothing about the boundary: Go does not let one
 package touch another's unexported identifiers, so "the rules use only the
 public API" is still enforced by the compiler. The kernel has no `internal/`
 at all -- `enginetest` is public on purpose, see [`API.md`](API.md) -- so every
-entry point `games/` uses is one a third party can use too.
+entry point `example/` uses is one a third party can use too.
 
 ## What language to write in
 
-Comments are English in the kernel and per-package in `games/`, and the rule
+Comments are English in the kernel and per-package in `example/`, and the rule
 is **the language the game's own rules are written in**, not consistency
 across the repository.
 
 | Package | Language | Implements |
 |---|---|---|
 | the kernel (root) | **English** | nothing; it knows no game |
-| [`games/werewolf/`](games/werewolf) | **Chinese** | the Chinese ruleset of Werewolf |
-| [`games/missions/`](games/missions) | **English** | The Resistance and its Avalon variant |
-| [`games/onenight/`](games/onenight) | **English** | One Night Ultimate Werewolf |
-| [`example/`](example) | **Chinese** | all three examples host a game of Werewolf, so they follow that package |
+| [`example/werewolf/`](example/werewolf) | **Chinese** | the Chinese ruleset of Werewolf |
+| [`example/missions/`](example/missions) | **English** | The Resistance and its Avalon variant |
+| [`example/onenight/`](example/onenight) | **English** | One Night Ultimate Werewolf |
+| [`cmd/`](cmd) | **Chinese** | all four programs host a game of Werewolf, so they follow that package |
 
 The kernel is a library strangers import, and its comments carry the reasoning
 -- why it recognises no value of its own, why the three faces are not merged.
 Locking half of that behind one language throws half of it away.
 
-`games/werewolf/` implements what is played at a Chinese table: 屠边/屠城,
+`example/werewolf/` implements what is played at a Chinese table: 屠边/屠城,
 同守同救, the guard who may not guard twice running, 上帝 as host, the
 12-player standard board. Those concepts are natively Chinese; "屠边" rendered
 as *side-wipe* has already lost the 神职/平民 structure it rests on.
@@ -99,8 +99,8 @@ written in.
 
 | | What it is | Who keeps it current |
 |---|---|---|
-| [`games/werewolf/README.md`](games/werewolf/README.md) | the full reference, 800-odd lines, in Chinese | follows the code |
-| [`games/werewolf/README.en.md`](games/werewolf/README.en.md) | **a short, independent English overview**, 200 lines | only when "what is this, how do I start" changes |
+| [`example/werewolf/README.md`](example/werewolf/README.md) | the full reference, 800-odd lines, in Chinese | follows the code |
+| [`example/werewolf/README.en.md`](example/werewolf/README.en.md) | **a short, independent English overview**, 200 lines | only when "what is this, how do I start" changes |
 
 **The second is not a translation of the first, and should not be filled out
 into one.** It is the English reader's front door: what this is, whether it is
@@ -116,13 +116,13 @@ make lint              # golangci-lint
 make check             # all of the above, plus gofmt and go vet
 ```
 
-The three examples all run as-is; after changing the API, check they are still
-alive:
+The four programs under `cmd/` all run as-is; after changing the API, check
+they are still alive:
 
 ```sh
-go run ./example              # each interface demonstrated
-printf 'run\nquit\n' | go run ./example/cli   # play a game start to finish
-go run ./example/extension    # a third-party role (the idiot)
+go run ./cmd/demo                          # each interface demonstrated
+printf 'run\nquit\n' | go run ./cmd/cli     # play a game start to finish
+go run ./cmd/extension                     # a third-party role (the idiot)
 ```
 
 ## What a good change looks like

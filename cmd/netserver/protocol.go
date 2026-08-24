@@ -8,7 +8,7 @@ package main
 
 import (
 	"github.com/Zereker/hiddenrole"
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 // clientMsg 客户端发来的。

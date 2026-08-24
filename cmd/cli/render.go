@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/Zereker/hiddenrole"
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 // ==================== 输入解析 ====================

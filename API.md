@@ -833,7 +833,7 @@ spot. With behaviour comparison added, the first run caught three real bugs.
 It used to be called `internal/gamefuzz`, and was made public when the engine
 became its own library and the rules packages moved into another module, where
 `internal/` would have been unreachable. The rules packages have since moved
-back in under `games/`, so `internal/` would work again -- but it stays public
+back in under `example/`, so `internal/` would work again -- but it stays public
 on purpose: a harness only this repository can use is not evidence that a
 third party can test their own rules package the same way. Being public, it is
 pinned by `TestAPI_SurfaceIsPinned` along with everything else, or it would be

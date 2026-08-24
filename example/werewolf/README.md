@@ -4,11 +4,11 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
-[![Go Reference](https://pkg.go.dev/badge/github.com/Zereker/hiddenrole/games/werewolf.svg)](https://pkg.go.dev/github.com/Zereker/hiddenrole/games/werewolf)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Zereker/hiddenrole/example/werewolf.svg)](https://pkg.go.dev/github.com/Zereker/hiddenrole/example/werewolf)
 
 **狼人杀规则包**，纯 Go，**零依赖**。它跑在
 [hiddenrole](../../README.md) 这个社会推理游戏内核上，是本仓库
-`games/` 下三套规则包中的一套。
+`example/` 下三套规则包中的一套。
 
 它只负责两件事：给定一副板子和一套规则，裁决每个阶段发生了什么，
 以及**每个人有权知道什么**。计时、联网、房间、持久化刻意不在里面。
@@ -24,14 +24,14 @@
 
 | 包 | 玩的是什么 | 它证明了什么 |
 |---|---|---|
-| `games/werewolf/` | 狼人杀（本包） | 出局是核心机制，八个阶段成环 |
-| [`games/missions/`](../missions/) | 任务制（提名 / 表决 / 任务 / 刺杀） | **一个人都不出局**也能跑；阶段流转由结算结果决定 |
-| [`games/onenight/`](../onenight/) | 单夜换牌制 | 身份**分两层**：发到手的那张定夜里做什么，手上那张定结算算哪边 |
+| `example/werewolf/` | 狼人杀（本包） | 出局是核心机制，八个阶段成环 |
+| [`example/missions/`](../missions/) | 任务制（提名 / 表决 / 任务 / 刺杀） | **一个人都不出局**也能跑；阶段流转由结算结果决定 |
+| [`example/onenight/`](../onenight/) | 单夜换牌制 | 身份**分两层**：发到手的那张定夜里做什么，手上那张定结算算哪边 |
 
 三套没有一个取值相同（阶段、角色、技能、事件全不一样），而内核不用改。
 第三套写下来只逼出**零个破坏性 API 变更**——[API 已冻结](../../API.md)。
 
-**三套是平级的**，都在 `games/` 下，都只用内核的公开 API，互相零耦合。
+**三套是平级的**，都在 `example/` 下，都只用内核的公开 API，互相零耦合。
 本包的注释是中文、另两套是英文——判据是规则原文的语言，不是仓库的统一，
 见 [CONTRIBUTING](../../CONTRIBUTING.md#what-language-to-write-in)。
 
@@ -50,7 +50,7 @@
 ## 安装
 
 ```bash
-go get github.com/Zereker/hiddenrole/games/werewolf
+go get github.com/Zereker/hiddenrole/example/werewolf
 ```
 
 ## 快速开始
@@ -62,7 +62,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 func main() {
@@ -150,7 +150,7 @@ func must(err error) {
 天亮了，当前阶段=DAY，v1 存活=false
 ```
 
-完整示例见 [example/main.go](../../example/main.go)。
+完整示例见 [cmd/demo/main.go](../../cmd/demo/main.go)。
 
 ## 核心概念
 
@@ -378,7 +378,7 @@ g.EndPhase()   // 未就绪也不会被拒绝，是否超时推进由调用方�
 
 ```go
 import (
-    "github.com/Zereker/hiddenrole/games/werewolf"
+    "github.com/Zereker/hiddenrole/example/werewolf"
     "github.com/Zereker/hiddenrole" // 扩展点住在内核包
 )
 
@@ -460,17 +460,17 @@ g.AddPlayer("wk", roleWolfKing)
 出局时触发的能力由 Resolver 产出 `NewDetourEffect(playerID, phase)`，
 引擎会自动流转到该阶段，并把胜负判定推迟到技能结算之后。
 
-可运行的例子：[example/extension](../../example/extension) 加了一个**白痴**（被投票放逐时
+可运行的例子：[example/extension](../../cmd/extension) 加了一个**白痴**（被投票放逐时
 翻牌、不出局、此后失去投票权），演示包装内置解析器、否决一个效果、自定义事件类型
 与存档恢复；[extension_test.go](extension_test.go) 用狼王再走一遍死亡触发那条分支。
 
 ## 命令行主持台
 
-`example/cli` 是一个能真的从头玩完一局的主持台，也是这个库的第一个真实使用者——
+`cmd/cli` 是一个能真的从头玩完一局的主持台，也是这个库的第一个真实使用者——
 超时、消息路由、存档落盘这些库刻意不管的事，都由它自己解决：
 
 ```console
-$ go run ./example/cli
+$ go run ./cmd/cli
 狼人杀 · 命令行主持台
 9 人局：3 狼 + 预言家/女巫/守卫/猎人 + 2 民
 
@@ -496,18 +496,18 @@ $ go run ./example/cli
 
 `view <玩家>` 出来的内容可以原样发给他，`[私信]` / `[全场]` 的分发依据是
 `AudienceOf`。`run` 让它自己随机跑完一局，`save` / `load` 演示服务重启。
-也可以照脚本跑：`go run ./example/cli < example/cli/testdata/demo.txt`。
+也可以照脚本跑：`go run ./cmd/cli < cmd/cli/testdata/demo.txt`。
 
 ## TCP 服务端
 
-`example/netserver` 是一个 TCP 长连接的服务端，也是这个库的第二个真实使用者。
+`cmd/netserver` 是一个 TCP 长连接的服务端，也是这个库的第二个真实使用者。
 命令行主持台验证的是「一个人主持一局」，有一整类东西它碰不到——事件推送、
 每条连接一份视图、多局并发、断线重连、超时真的触发——都由它来压。
 
 协议是 TCP + 一行一条 JSON，`nc` 就能玩：
 
 ```console
-$ go run ./example/netserver &
+$ go run ./cmd/netserver &
 $ nc localhost 9000
 {"type":"join","player":"p1"}
 <- {"type":"phase","phase":"NIGHT_GUARD","round":1,"deadline_ms":...}
@@ -544,7 +544,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 func main() {
@@ -668,7 +668,7 @@ NIGHT_GUARD → NIGHT_WOLF → NIGHT_WITCH → NIGHT_SEER → NIGHT_RESOLVE
 ## 项目结构
 
 ```
-games/werewolf/              # 规则包：狼人杀这一套怎么玩（本包）
+example/werewolf/            # 规则包：狼人杀这一套怎么玩（本包）
 ├── vocab.go                 # 词汇表：十个阶段、六个角色、八个技能、九个事件
 ├── board.go                 # 默认板子：阶段环、各阶段建议超时、屠边/屠城
 ├── rules.go                 # 规则开关与 Options()——把内核装配成一局狼人杀
@@ -691,7 +691,8 @@ games/werewolf/              # 规则包：狼人杀这一套怎么玩（本包�
 ../onenight/                 # 第三套规则包：单夜换牌制（两层身份）
   └── SCARS.md               # 同上
 ../../                       # 内核本身：types.go、engine.go、phase.go……
-../../example/               # 可运行示例
+../../cmd/                   # 跑得起来的程序
+    ├── demo/                # 各接口的用法演示
     ├── cli/                 # 命令行主持台（真实使用者）
     ├── netserver/           # TCP 服务端（推送、并发、断线重连）
     └── extension/           # 自定义角色（白痴）
@@ -707,8 +708,8 @@ games/werewolf/              # 规则包：狼人杀这一套怎么玩（本包�
 | 走到这一步的次序与判断过程 | [ROADMAP.md](../../docs/ROADMAP.md)（已归档） |
 | 现在的代码是怎么组织的 | [ARCHITECTURE.md](../../ARCHITECTURE.md) |
 | 别人怎么做的，我们哪里强、哪里欠 | [PRIOR-ART.md](../../PRIOR-ART.md) |
-| 第二套规则包撞到了什么 | [games/missions/SCARS.md](../missions/SCARS.md) |
-| 第三套规则包撞到了什么 | [games/onenight/SCARS.md](../onenight/SCARS.md) |
+| 第二套规则包撞到了什么 | [example/missions/SCARS.md](../missions/SCARS.md) |
+| 第三套规则包撞到了什么 | [example/onenight/SCARS.md](../onenight/SCARS.md) |
 
 **设计理念：**
 - **状态机驱动** - 不是事件驱动，而是显式的阶段流转
@@ -721,9 +722,9 @@ games/werewolf/              # 规则包：狼人杀这一套怎么玩（本包�
 
 | 规则包 | 实现的是什么 | 基准 |
 |---|---|---|
-| `games/werewolf/` | 狼人杀 | 中文维基[「狼人殺」条目](https://zh.wikipedia.org/wiki/狼人殺) |
-| [`games/missions/`](../missions/) | 任务制社会推理（The Resistance 及其 Avalon 变体的玩法） | 英文维基 [The Resistance (game)](https://en.wikipedia.org/wiki/The_Resistance_(game)) |
-| [`games/onenight/`](../onenight/) | 单夜换牌制（One Night Ultimate Werewolf 的玩法） | 出版方 Bezier Games 的官方规则书 |
+| `example/werewolf/` | 狼人杀 | 中文维基[「狼人殺」条目](https://zh.wikipedia.org/wiki/狼人殺) |
+| [`example/missions/`](../missions/) | 任务制社会推理（The Resistance 及其 Avalon 变体的玩法） | 英文维基 [The Resistance (game)](https://en.wikipedia.org/wiki/The_Resistance_(game)) |
+| [`example/onenight/`](../onenight/) | 单夜换牌制（One Night Ultimate Werewolf 的玩法） | 出版方 Bezier Games 的官方规则书 |
 
 ### 关于名称
 
@@ -769,7 +770,7 @@ games/werewolf/              # 规则包：狼人杀这一套怎么玩（本包�
 go test ./...           # 全部测试
 go test -race ./...     # 并发检查
 golangci-lint run       # 静态检查（覆盖测试代码）
-go run ./example        # 示例必须能跑通，不是只能编译
+go run ./cmd/demo        # 示例必须能跑通，不是只能编译
 ```
 
 ## 更新日志与发版
@@ -792,7 +793,7 @@ CHANGELOG 里对应的小节。四道闸：版本号格式、tag 未占用、CHA
 **v1.5.0 是 API 的冻结点。** 这一版含大量破坏性变更（清单见 CHANGELOG），此后公开
 API 是承诺。
 
-**import 路径是 `github.com/Zereker/hiddenrole/games/werewolf`。** 内核与三套规则包
+**import 路径是 `github.com/Zereker/hiddenrole/example/werewolf`。** 内核与三套规则包
 住在同一个 module 里，各自是独立的包。Go 要求主版本 ≥ 2 的模块带 `/vN` 后缀，那会
 让每个使用者的 import 路径都变一次；把破坏一次付清、留在 v1 线上更划算。
 
@@ -800,7 +801,7 @@ API 是承诺。
 
 | 包 | 是什么 |
 |---|---|
-| `github.com/Zereker/hiddenrole/games/werewolf` | 狼人杀规则：角色、阶段、解析器、屠边屠城 |
+| `github.com/Zereker/hiddenrole/example/werewolf` | 狼人杀规则：角色、阶段、解析器、屠边屠城 |
 | `github.com/Zereker/hiddenrole` | 内核：玩家、阶段环、两条状态原语、信息边界 |
 
 **「规则只用公开 API」由编译器保证**，不靠自觉——同一个 module 不改变这一点，

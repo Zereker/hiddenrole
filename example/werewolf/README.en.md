@@ -4,7 +4,7 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
-[![Go Reference](https://pkg.go.dev/badge/github.com/Zereker/hiddenrole/games/werewolf.svg)](https://pkg.go.dev/github.com/Zereker/hiddenrole/games/werewolf)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Zereker/hiddenrole/example/werewolf.svg)](https://pkg.go.dev/github.com/Zereker/hiddenrole/example/werewolf)
 
 A rules engine for Werewolf / Mafia, written in Go with **zero dependencies**.
 
@@ -35,8 +35,8 @@ This library takes those judgements off your hands and keeps them under test.
 
 **Building a Werewolf product** — you get the rules, the information boundary,
 save/restore, and replay. Wire up your own transport and UI.
-[`example/netserver`](../../example/netserver) is a working TCP server in under 400
-lines; [`example/cli`](../../example/cli) is a host console you can play a full game in.
+[`cmd/netserver`](../../cmd/netserver) is a working TCP server in under 400
+lines; [`cmd/cli`](../../cmd/cli) is a host console you can play a full game in.
 
 **Building an LLM social-deduction benchmark** — you get determinism (same
 inputs, byte-identical snapshots), a per-player view you can hand straight to an
@@ -46,7 +46,7 @@ cannot see what they shouldn't, because the engine never hands it to them.
 ## Install
 
 ```sh
-go get github.com/Zereker/hiddenrole/games/werewolf
+go get github.com/Zereker/hiddenrole/example/werewolf
 ```
 
 ## Quick start
@@ -111,7 +111,7 @@ privileges** — they go through exactly the same doors:
 | Who is on whose side | `WithTeammates(provider)` — asymmetry allowed |
 | Who can hear speech | `WithSpeech(provider)` |
 
-[`example/extension`](../../example/extension) adds an **Idiot** (flips their card when
+[`cmd/extension`](../../cmd/extension) adds an **Idiot** (flips their card when
 voted out, survives, loses the vote thereafter) using only exported API.
 
 ### The kernel knows four state primitives
@@ -150,7 +150,7 @@ The two layers are two packages:
 
 | Package | What it is |
 |---|---|
-| `github.com/Zereker/hiddenrole/games/werewolf` | The Werewolf rules: roles, phases, resolvers, victory |
+| `github.com/Zereker/hiddenrole/example/werewolf` | The Werewolf rules: roles, phases, resolvers, victory |
 | `github.com/Zereker/hiddenrole` | The kernel: players, a phase ring, four state primitives, the information boundary |
 
 **"The rules only use public API" is enforced by the compiler**, not by
@@ -190,7 +190,7 @@ make lint              # golangci-lint
 
 ## Documentation
 
-- [`doc.go`](doc.go) / [pkg.go.dev](https://pkg.go.dev/github.com/Zereker/hiddenrole/games/werewolf) — package documentation
+- [`doc.go`](doc.go) / [pkg.go.dev](https://pkg.go.dev/github.com/Zereker/hiddenrole/example/werewolf) — package documentation
 - [the kernel](../../README.md) — what this is built on, with its own
   [`API.md`](../../API.md), [`DESIGN.md`](../../DESIGN.md) and
   [`ARCHITECTURE.md`](../../ARCHITECTURE.md) (all in English)

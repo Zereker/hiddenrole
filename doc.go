@@ -7,7 +7,7 @@
 //
 // A concrete rule set (roles, skills, ways to die, victory, information
 // boundaries) comes from a rules package, installed entirely through public
-// constructor options. github.com/Zereker/hiddenrole/games/werewolf was the first such package,
+// constructor options. github.com/Zereker/hiddenrole/example/werewolf was the first such package,
 // and that it uses no back door is checkable: in this package's non-test
 // sources RoleType has exactly two values (RoleUnspecified, RoleSystem),
 // PhaseType three and SkillType three, all in types.go. Not one "Witch",

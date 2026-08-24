@@ -13,7 +13,7 @@ import (
 	"fmt"
 
 	"github.com/Zereker/hiddenrole"
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 // 自定义取值从 1000 起，避免与后续内置枚举撞号。

@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/Zereker/hiddenrole"
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 func main() {

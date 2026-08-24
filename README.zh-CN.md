@@ -27,9 +27,9 @@ go get github.com/Zereker/hiddenrole
 
 | 规则包 | 玩的是什么 | 它证明了什么 |
 |---|---|---|
-| [werewolf](games/werewolf) | 狼人杀 | 出局是核心机制，八个阶段成环 |
-| [missions](games/missions) | 任务制（提名 / 表决 / 任务 / 刺杀） | **一个人都不出局**也能跑；阶段流转由结算结果决定 |
-| [onenight](games/onenight) | 单夜换牌制 | 身份**分两层**：发到手的那张定夜里做什么，手上那张定结算算哪边 |
+| [werewolf](example/werewolf) | 狼人杀 | 出局是核心机制，八个阶段成环 |
+| [missions](example/missions) | 任务制（提名 / 表决 / 任务 / 刺杀） | **一个人都不出局**也能跑；阶段流转由结算结果决定 |
+| [onenight](example/onenight) | 单夜换牌制 | 身份**分两层**：发到手的那张定夜里做什么，手上那张定结算算哪边 |
 
 第三套写下来只逼出**零个破坏性 API 变更**——[API 已冻结](API.md)，
 由 `TestAPI_SurfaceIsPinned` 与 [`testdata/api.golden`](testdata/api.golden)
@@ -43,25 +43,25 @@ go get github.com/Zereker/hiddenrole
 | **该长成什么样、为什么这么抽象** | [DESIGN.md](DESIGN.md) |
 | 现在的代码怎么组织的 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 别人怎么做的，我们哪里强、哪里欠 | [PRIOR-ART.md](PRIOR-ART.md) |
-| 写规则包时撞到过什么 | [missions](games/missions/SCARS.md) · [onenight](games/onenight/SCARS.md) |
-| 怎么用它开一局狼人杀 | [`games/werewolf/README.md`](games/werewolf/README.md) |
+| 写规则包时撞到过什么 | [missions](example/missions/SCARS.md) · [onenight](example/onenight/SCARS.md) |
+| 怎么用它开一局狼人杀 | [`example/werewolf/README.md`](example/werewolf/README.md) |
 
 ## 这个仓库里有什么
 
 ```
 .                     内核：types.go、engine.go、phase.go、view.go……
 ├── enginetest/       随机对局与七条通用不变量，给你自己的规则包用
-├── games/            三套规则包，互相平级，都只用公开 API
+├── example/          三套规则包，互相平级，都只用公开 API
 │   ├── werewolf/     狼人杀（中文规则）
 │   ├── missions/     The Resistance 与它的 Avalon 变体
 │   └── onenight/     One Night Ultimate Werewolf
-├── example/          跑得起来的：命令行主持台、TCP 服务端、第三方角色
+├── cmd/              跑得起来的程序：演示、命令行主持台、TCP 服务端、第三方角色
 └── docs/ROADMAP.md   走到这一步的记录（已归档）
 ```
 
 内核与三套游戏是**同一个 module 里的四个包**。「规则只用公开 API」不论同不同
 module 都由编译器执行——Go 不让一个包碰另一个包的非导出名字——而且内核里连
-`internal/` 都没有，所以 `games/` 用到的每一个入口，你也能用。
+`internal/` 都没有，所以 `example/` 用到的每一个入口，你也能用。
 
 写自己的规则包时，[`enginetest`](enginetest/) 提供随机对局与七条通用不变量
 （`RunFuzz`）——它们一条都不认识任何游戏，只验内核层面的事：存了再读回来
@@ -331,7 +331,7 @@ e.OnEvent(func(ev *hiddenrole.Event) {
 ```
 
 把引擎接进一个服务端正是这么做的，见 werewolf 仓库里的
-[`example/netserver`](example/netserver)。
+[`cmd/netserver`](cmd/netserver)。
 
 ## 单测自己的解析器
 
@@ -403,7 +403,7 @@ go doc github.com/Zereker/hiddenrole
 ```
 
 包文档见 [`doc.go`](doc.go)。三套真实的、跑得起来的规则包见
-[`games/`](games)——它们用的每一个入口你也能用，而且这件事由编译器说了算：
+[`example/`](example)——它们用的每一个入口你也能用，而且这件事由编译器说了算：
 它们是本包之外的普通包，拿不到任何你拿不到的东西。
 
 ## 许可证

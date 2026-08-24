@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/Zereker/hiddenrole"
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 // command 房间收到的一条指令。

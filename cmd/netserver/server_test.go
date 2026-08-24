@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Zereker/hiddenrole"
-	"github.com/Zereker/hiddenrole/games/werewolf"
+	"github.com/Zereker/hiddenrole/example/werewolf"
 )
 
 // 这些测试是这个示例存在的理由。命令行主持台碰不到的那半边——

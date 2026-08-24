@@ -84,7 +84,7 @@ this library.
 
 ## Two places where we owe
 
-### 1. Who may act ([SCARS.md](games/missions/SCARS.md) scar 1)
+### 1. Who may act ([SCARS.md](example/missions/SCARS.md) scar 1)
 
 Their decision is three lines:
 
@@ -178,7 +178,7 @@ the other two do not, because "who may act" is computed from state anyway.
 
 Adding `SetActors` put us in the second camp. So the question changed from
 "do we need `Alive`" to "should it still be the decider" -- and the answer is
-no; see [SCARS.md](games/missions/SCARS.md)
+no; see [SCARS.md](example/missions/SCARS.md)
 scar 6. `Alive` stays as the **default**, and when the rules name actors, the
 rules take responsibility.
 

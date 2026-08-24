@@ -89,8 +89,8 @@ jobs:
           go build ./...
           go vet ./...
           go test -race ./...
-          go run ./example > /dev/null
-          go run ./example/cli -seed 7 < example/cli/testdata/demo.txt > /dev/null
+          go run ./cmd/demo > /dev/null
+          go run ./cmd/cli -seed 7 < cmd/cli/testdata/demo.txt > /dev/null
 
       # gh is preinstalled on the runner, and this command creates the tag too.
       - name: Create tag and release

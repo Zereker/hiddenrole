@@ -38,14 +38,14 @@ jobs:
       - name: Run tests
         run: go test -v -race ./...
 
-      # Coverage over the kernel plus the three rules packages under games/,
-      # and nothing else. Left out: enginetest (a harness driven from games/,
+      # Coverage over the kernel plus the three rules packages under example/,
+      # and nothing else. Left out: enginetest (a harness driven from example/,
       # with no tests of its own and none wanted) and example/ (those are
       # users, not subjects; counting them only dilutes the number).
       - name: Coverage
         run: >
           go test -covermode=atomic -coverprofile=coverage.out
-          -coverpkg=github.com/Zereker/hiddenrole,github.com/Zereker/hiddenrole/games/werewolf,github.com/Zereker/hiddenrole/games/missions,github.com/Zereker/hiddenrole/games/onenight
+          -coverpkg=github.com/Zereker/hiddenrole,github.com/Zereker/hiddenrole/example/werewolf,github.com/Zereker/hiddenrole/example/missions,github.com/Zereker/hiddenrole/example/onenight
           ./... && go tool cover -func=coverage.out | tail -1
 
       - name: Upload coverage to Codecov

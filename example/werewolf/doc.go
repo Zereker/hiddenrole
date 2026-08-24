@@ -24,7 +24,7 @@
 //
 // 两层是两个包：
 //
-//	github.com/Zereker/hiddenrole/games/werewolf  这个包，狼人杀规则
+//	github.com/Zereker/hiddenrole/example/werewolf  这个包，狼人杀规则
 //	github.com/Zereker/hiddenrole                 内核，API 已冻结
 //
 // 同一个 module，但**是两个包**——这一点比同不同仓库要紧：Go 不让一个包
