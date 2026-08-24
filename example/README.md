@@ -30,9 +30,23 @@ holds for rulesets that were not.
 
 | Package | Game | What it exercises that the other does not |
 |---|---|---|
+| [`werewolf`](werewolf/) | Werewolf / Mafia | **Elimination is the whole game.** A death detour (the hunter shoots after being killed), a round boundary that has to wait for that detour, an eight-phase cycle, and a rules struct of switches on top of the board |
 | [`avalon`](avalon/) | The Resistance / Avalon | **Nobody is ever eliminated.** Game-scoped state (which mission, consecutive rejections, whose turn to lead), a team chosen in one phase and used in the next, and a branch (`GOTO_PHASE`) that a static graph cannot express |
 
-Werewolf is the other one and has not been brought across yet.
+No two of them share a phase, a role, or a skill, and the kernel needs no
+change to run either.
+
+## What came across, and what did not
+
+Both were lifted from `Zereker/werewolf`, where they ran on an embedded copy
+of this kernel that had drifted well behind it -- four separate var
+constructors instead of one scoped effect, four scalar readers instead of
+`Status()`, `PendingTrigger` instead of `Detour`, a `Metrics` interface the
+kernel has since deleted. Their tests came with them; that was the point.
+
+Not brought across: that repository's own `example/` (a CLI, a net server, an
+extension demo) and its long-form design documents. They belong with whatever
+it becomes next, and this directory is about verification.
 
 ## The rules of engagement
 

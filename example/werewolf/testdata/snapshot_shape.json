@@ -1,0 +1,351 @@
+{
+  "version": 15,
+  "log": {
+    "version": 1,
+    "effects": [
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "w1",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "WEREWOLF",
+          "vars": {
+            "camp": "EVIL",
+            "category": "WOLF"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "w2",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "WEREWOLF",
+          "vars": {
+            "camp": "EVIL",
+            "category": "WOLF"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "s",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "SEER",
+          "vars": {
+            "camp": "GOOD",
+            "category": "GOD"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "wi",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "WITCH",
+          "vars": {
+            "camp": "GOOD",
+            "category": "GOD",
+            "witch.antidote": "1",
+            "witch.poison": "1"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "g",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "GUARD",
+          "vars": {
+            "camp": "GOOD",
+            "category": "GOD"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "h",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "HUNTER",
+          "vars": {
+            "camp": "GOOD",
+            "category": "GOD"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "v1",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "VILLAGER",
+          "vars": {
+            "camp": "GOOD",
+            "category": "VILLAGER"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "v2",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "VILLAGER",
+          "vars": {
+            "camp": "GOOD",
+            "category": "VILLAGER"
+          }
+        }
+      },
+      {
+        "type": "PLAYER_ADDED",
+        "target_id": "v3",
+        "args": {
+          "alive": false,
+          "scope": {},
+          "role": "VILLAGER",
+          "vars": {
+            "camp": "GOOD",
+            "category": "VILLAGER"
+          }
+        }
+      },
+      {
+        "type": "GAME_STARTED",
+        "args": {
+          "phase": "NIGHT_GUARD",
+          "alive": false,
+          "scope": {}
+        }
+      },
+      {
+        "type": "SET_VAR",
+        "target_id": "s",
+        "args": {
+          "alive": false,
+          "scope": {
+            "per_round": true,
+            "owner": "s"
+          },
+          "key": "guard.protected",
+          "value": "1"
+        }
+      },
+      {
+        "type": "SET_VAR",
+        "target_id": "g",
+        "args": {
+          "alive": false,
+          "scope": {
+            "owner": "g"
+          },
+          "key": "guard.last_target",
+          "value": "s"
+        }
+      },
+      {
+        "type": "SET_VAR",
+        "target_id": "g",
+        "args": {
+          "alive": false,
+          "scope": {
+            "owner": "g"
+          },
+          "key": "guard.last_round",
+          "value": "1"
+        }
+      },
+      {
+        "type": "PROTECT",
+        "source_id": "g",
+        "target_id": "s"
+      },
+      {
+        "type": "PHASE_CHANGED",
+        "args": {
+          "phase": "NIGHT_WOLF",
+          "alive": false,
+          "scope": {}
+        }
+      },
+      {
+        "type": "SET_VAR",
+        "args": {
+          "alive": false,
+          "scope": {
+            "per_round": true
+          },
+          "key": "wolf.kill_target",
+          "value": "v1"
+        }
+      },
+      {
+        "type": "PHASE_CHANGED",
+        "args": {
+          "phase": "NIGHT_WITCH",
+          "alive": false,
+          "scope": {}
+        }
+      },
+      {
+        "type": "SAVE",
+        "source_id": "wi",
+        "target_id": "v1"
+      },
+      {
+        "type": "SET_VAR",
+        "target_id": "wi",
+        "args": {
+          "alive": false,
+          "scope": {
+            "owner": "wi"
+          },
+          "key": "witch.antidote"
+        }
+      },
+      {
+        "type": "SET_VAR",
+        "target_id": "v1",
+        "args": {
+          "alive": false,
+          "scope": {
+            "per_round": true,
+            "owner": "v1"
+          },
+          "key": "witch.saved",
+          "value": "1"
+        }
+      },
+      {
+        "type": "PHASE_CHANGED",
+        "args": {
+          "phase": "NIGHT_SEER",
+          "alive": false,
+          "scope": {}
+        }
+      }
+    ]
+  },
+  "phase": "NIGHT_SEER",
+  "round": 1,
+  "players": [
+    {
+      "id": "g",
+      "role": "GUARD",
+      "alive": true,
+      "vars": {
+        "camp": "GOOD",
+        "category": "GOD",
+        "guard.last_round": "1",
+        "guard.last_target": "s"
+      }
+    },
+    {
+      "id": "h",
+      "role": "HUNTER",
+      "alive": true,
+      "vars": {
+        "camp": "GOOD",
+        "category": "GOD"
+      }
+    },
+    {
+      "id": "s",
+      "role": "SEER",
+      "alive": true,
+      "round_vars": {
+        "guard.protected": "1"
+      },
+      "vars": {
+        "camp": "GOOD",
+        "category": "GOD"
+      }
+    },
+    {
+      "id": "v1",
+      "role": "VILLAGER",
+      "alive": true,
+      "round_vars": {
+        "witch.saved": "1"
+      },
+      "vars": {
+        "camp": "GOOD",
+        "category": "VILLAGER"
+      }
+    },
+    {
+      "id": "v2",
+      "role": "VILLAGER",
+      "alive": true,
+      "vars": {
+        "camp": "GOOD",
+        "category": "VILLAGER"
+      }
+    },
+    {
+      "id": "v3",
+      "role": "VILLAGER",
+      "alive": true,
+      "vars": {
+        "camp": "GOOD",
+        "category": "VILLAGER"
+      }
+    },
+    {
+      "id": "w1",
+      "role": "WEREWOLF",
+      "alive": true,
+      "vars": {
+        "camp": "EVIL",
+        "category": "WOLF"
+      }
+    },
+    {
+      "id": "w2",
+      "role": "WEREWOLF",
+      "alive": true,
+      "vars": {
+        "camp": "EVIL",
+        "category": "WOLF"
+      }
+    },
+    {
+      "id": "wi",
+      "role": "WITCH",
+      "alive": true,
+      "vars": {
+        "camp": "GOOD",
+        "category": "GOD",
+        "witch.poison": "1"
+      }
+    }
+  ],
+  "round_context": {
+    "vars": {
+      "wolf.kill_target": "v1"
+    }
+  },
+  "pending_uses": [
+    {
+      "player_id": "s",
+      "skill": "CHECK",
+      "targets": [
+        "w1"
+      ],
+      "phase": "NIGHT_SEER",
+      "round": 1
+    }
+  ]
+}

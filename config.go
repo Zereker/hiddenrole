@@ -109,33 +109,46 @@ var knownActions = map[PhaseAction]bool{
 	ActionClearRoundVars: true,
 }
 
-// heldByPendingDetour lists the actions that must not run while a detour is
-// still owed, and it is the **one** place this machine departs from the
-// transition semantics it otherwise follows (see phaseTree.transitionSets).
-// Standard semantics run every exit and entry action of every phase actually
-// left and entered; here one action is held back.
+// heldByPendingDetour lists the actions that wait while a detour is still
+// owed, and it is the **one** place this machine departs from the transition
+// semantics it otherwise follows (see phaseTree.transitionSets). Standard
+// semantics run every exit and entry action of every phase actually left and
+// entered; here some of them are held back and run later.
 //
-// There is exactly one mechanical reason, and it applies to exactly one
-// action: the pending detour queue lives **inside** the round context, so
-// clearing round state would erase a debt that was never settled and the
-// exiled hunter's shot would vanish. Two detours pointing at the same phase
-// make it reachable -- the machine re-enters that phase to drain the second,
-// and if it declared "begin from a clean board" it would wipe the queue on
-// the way in.
+// **Held means deferred, not skipped.** They run at the first transition
+// after the queue drains, in the order they were held. That distinction is
+// the whole content of this mechanism, and getting it wrong has now produced
+// a bug in each direction:
 //
-// This table used to be a blanket condition instead. Both actions were
-// skipped whenever a detour was pending, on the strength of that one reason
-// -- which does not hold for counting: the round number has nothing to do
-// with the queue. The counter was collateral, and because the phase that
-// declares the increment is never exited a second time, the increment was
-// **dropped rather than deferred**: a round in which anybody took a death
-// detour did not advance the counter at all. Rules packages compensated by
-// declaring the increment on every phase the flow might leave through, which
-// is the kernel being one step short and the rules making up the difference.
+//	dropped   the round counter was held with everything else and never ran,
+//	          because the phase that declares it is not left a second time.
+//	          A round in which anybody took a death detour did not advance.
+//	          Boards compensated by declaring the increment on every phase
+//	          the flow might leave through.
+//	too soon  holding only the clear and letting the counter run immediately
+//	          fixed that and broke something else: the counter moved at the
+//	          vote's exit while round state was not cleared until two
+//	          transitions later, so "the round advanced" and "the board is
+//	          clean" stopped being the same instant. Werewolf asserts they
+//	          are, and it is right to -- its own board comments say the round
+//	          is not over until the shot has been fired.
 //
-// Any action added later runs by default. Being held is a claim about
-// interfering with the queue, and a new action has to earn its place here.
+// Both are held, and both land together on the transition that drains the
+// debt. What made the first version wrong was not which actions waited, it
+// was that waiting meant losing.
+//
+// The mechanical reason any of this is needed is narrow: the pending queue
+// lives **inside** the round context, so clearing round state would erase a
+// debt that was never settled and the exiled hunter's shot would vanish.
+// Counting waits for a different reason -- a round whose deaths are still
+// being resolved has not ended -- but they have to wait together, or the two
+// halves of a round boundary come apart.
+//
+// An action added later runs immediately by default. Waiting is a claim that
+// the action means something different while a debt is outstanding, and a new
+// action has to earn its place here.
 var heldByPendingDetour = map[PhaseAction]bool{
+	ActionAdvanceRound:   true,
 	ActionClearRoundVars: true,
 }
 

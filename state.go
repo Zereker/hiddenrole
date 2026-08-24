@@ -167,6 +167,16 @@ type gameState struct {
 
 	// The round's temporary context, rebuilt each round.
 	RoundCtx *RoundContext
+
+	// Deferred holds the phase actions that were due while a detour was
+	// still owed (see heldByPendingDetour). They run at the first transition
+	// after the queue drains, in the order they were held.
+	//
+	// It deliberately does **not** live in RoundCtx, even though everything
+	// in it is round bookkeeping: the whole reason these actions wait is
+	// that one of them destroys the round context, and a queue stored inside
+	// the thing it is waiting to destroy would erase itself.
+	Deferred []PhaseAction
 }
 
 // newState builds a game state.
@@ -357,6 +367,7 @@ func (s *gameState) clone() *gameState {
 	out.Round = s.Round
 	out.Vars = copyVars(s.Vars)
 	out.Actors = copyActors(s.Actors)
+	out.Deferred = append([]PhaseAction(nil), s.Deferred...)
 	out.RoundCtx = &RoundContext{
 		Detours: append([]Detour(nil), s.RoundCtx.Detours...),
 		Vars:    copyVars(s.RoundCtx.Vars),
@@ -519,8 +530,34 @@ func (s *gameState) leavePhase() {
 // One action is held while a debt is outstanding; everything else runs. See
 // heldByPendingDetour for why that is one action and not a blanket rule.
 func (s *gameState) enterPhase(from, to PhaseType, tree *phaseTree) {
+	// **The end of the game is not a new round.** Nothing follows END, so a
+	// boundary landing on the way into it counts a round that never began --
+	// and leaves the board's round state uncleared behind an advanced
+	// counter, because END declares no entry actions to clear it with.
+	//
+	// This condition was once folded into the same boolean as the detour
+	// guard, then lost when that boolean was split apart on the grounds that
+	// the two had different reasons. They do; both are still real. Werewolf's
+	// invariant "entering a new round, the round context must be clean"
+	// caught the loss on a game that ended at the vote.
+	//
+	// The live path and replay agree here without having to compute
+	// anything: the live path only reaches END once the queue has drained,
+	// and replay transitions to END on the recorded GAME_ENDED.
+	if to == PhaseEnd {
+		s.Phase = to
+		return
+	}
+
 	detourPending := s.hasPendingDetour()
 	exiting, entering := tree.transitionSets(from, to)
+
+	// Anything held by an earlier transition is due now. It runs before this
+	// transition's own actions, because that is the order the board declared
+	// them in -- the previous round's ending precedes this one's beginning.
+	if !detourPending {
+		s.runDeferred()
+	}
 
 	for _, phase := range exiting {
 		s.runActions(tree.onExit[phase], detourPending)
@@ -535,6 +572,35 @@ func (s *gameState) enterPhase(from, to PhaseType, tree *phaseTree) {
 	s.nameDetourActor()
 }
 
+// runDeferred performs the actions held by earlier transitions and empties
+// the queue.
+func (s *gameState) runDeferred() {
+	if len(s.Deferred) == 0 {
+		return
+	}
+	due := s.Deferred
+	s.Deferred = nil
+	for _, a := range due {
+		s.runAction(a)
+	}
+}
+
+// defer1 records an action to run once the detour queue drains.
+//
+// Recording the same action twice would count one round boundary as two, so
+// a repeat is dropped. That is not a hypothetical: while the increment was
+// being dropped rather than deferred, boards worked around it by declaring
+// it on every phase the flow might leave through, and such a board would
+// otherwise now hold two.
+func (s *gameState) defer1(a PhaseAction) {
+	for _, held := range s.Deferred {
+		if held == a {
+			return
+		}
+	}
+	s.Deferred = append(s.Deferred, a)
+}
+
 // runActions performs a phase's declared actions in order.
 //
 // An action the kernel does not recognise is impossible here: Validate
@@ -542,14 +608,23 @@ func (s *gameState) enterPhase(from, to PhaseType, tree *phaseTree) {
 func (s *gameState) runActions(actions []PhaseAction, detourPending bool) {
 	for _, a := range actions {
 		if detourPending && heldByPendingDetour[a] {
+			s.defer1(a)
 			continue
 		}
-		switch a {
-		case ActionAdvanceRound:
-			s.Round++
-		case ActionClearRoundVars:
-			s.resetRoundState()
-		}
+		s.runAction(a)
+	}
+}
+
+// runAction performs one action.
+//
+// An action the kernel does not recognise is impossible here: Validate
+// rejects one at construction, which is the whole reason the set is closed.
+func (s *gameState) runAction(a PhaseAction) {
+	switch a {
+	case ActionAdvanceRound:
+		s.Round++
+	case ActionClearRoundVars:
+		s.resetRoundState()
 	}
 }
 

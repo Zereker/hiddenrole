@@ -39,28 +39,69 @@ func detourEngine(t *testing.T, cfg *Config) *Engine {
 }
 
 // TestRoundBoundary_SurvivesADetour: the increment must not be lost because
-// somebody died on the way out.
+// somebody died on the way out -- and must not land early either.
 //
-// It used to be. A detour pending at the moment the round-ending phase was
-// left skipped **every** action, counter included -- and since that phase is
-// never left a second time, the increment was dropped rather than deferred.
-// A round in which anybody took a death detour simply did not advance the
-// counter, and boards compensated by declaring the increment on every phase
-// the flow might leave through.
+// Both halves have been wrong. The increment was once held with everything
+// else and never run, because the phase that declares it is not left a second
+// time, so a round in which anybody took a death detour did not advance at
+// all. Letting it run immediately fixed that and broke the other half: the
+// counter moved at the vote's exit while round state stayed uncleared until
+// two transitions later, and "the round advanced" stopped meaning "the board
+// is clean". Werewolf asserts those are the same instant, and its own board
+// says why -- the round is not over until the shot has been fired.
+//
+// So the boundary lands **when the debt clears**, both halves together.
 func TestRoundBoundary_SurvivesADetour(t *testing.T) {
 	e := detourEngine(t, testConfig())
 	before := e.Status().Round
 
-	// Leaving VOTE with a detour owed. VOTE declares the increment on exit.
+	// Leaving VOTE with a detour owed. The boundary is due but waits.
 	if _, err := e.EndPhase(); err != nil {
 		t.Fatalf("EndPhase: %v", err)
 	}
 	if got := e.Status().Phase; got != phaseDayHunter {
 		t.Fatalf("phase = %v, want the detour's phase %v", got, phaseDayHunter)
 	}
-	if got := e.Status().Round; got != before+1 {
-		t.Errorf("round = %d, want %d: the increment was dropped because a detour was owed", got, before+1)
+	if got := e.Status().Round; got != before {
+		t.Errorf("round = %d while a debt is outstanding, want %d: it landed early", got, before)
 	}
+
+	// The debt drains here, and the boundary lands with it.
+	if _, err := e.EndPhase(); err != nil {
+		t.Fatalf("EndPhase: %v", err)
+	}
+	if got := e.Status().Round; got != before+1 {
+		t.Errorf("round = %d after the debt drained, want %d: the increment was lost", got, before+1)
+	}
+}
+
+// TestRoundBoundary_CounterAndClearLandTogether: the two halves of a round
+// boundary are one instant, detour or no detour.
+//
+// This is the property werewolf's own invariants assert, and the one that
+// caught the version of this code that held only the clear.
+func TestRoundBoundary_CounterAndClearLandTogether(t *testing.T) {
+	e := detourEngine(t, testConfig())
+
+	// A marker from the round that is ending.
+	e.Apply(NewSetVarEffect(ScopeRound, "kill", "w1"))
+	round := e.Status().Round
+
+	for i := 0; i < 6; i++ {
+		if _, err := e.EndPhase(); err != nil {
+			t.Fatalf("EndPhase: %v", err)
+		}
+		advanced := e.Status().Round > round
+		clean := e.Var(ScopeRound, "kill") == ""
+		if advanced != clean {
+			t.Fatalf("step %d in %v: round advanced = %v but board clean = %v -- the two halves came apart",
+				i, e.Status().Phase, advanced, clean)
+		}
+		if advanced {
+			return
+		}
+	}
+	t.Fatal("the round never advanced")
 }
 
 // TestRoundBoundary_CountsOnce: and it must not be counted twice.

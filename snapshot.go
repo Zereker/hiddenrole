@@ -18,7 +18,7 @@ import (
 // cannot read is rebuilt by replaying that log instead (see RestoreEngine).
 // The version stops being "which saves we abandon" and becomes "which of the
 // two paths we can take".
-const SnapshotVersion = 14
+const SnapshotVersion = 15
 
 // Snapshot is the engine's complete serialisable state.
 //
@@ -64,6 +64,11 @@ type Snapshot struct {
 
 	// Vars is state that lives for the whole game and belongs to no player.
 	Vars map[string]string `json:"vars,omitempty"`
+
+	// Deferred are the phase actions held because a detour was still owed
+	// when they came due (see heldByPendingDetour). Without them a game
+	// saved mid-detour would resume having quietly lost a round boundary.
+	Deferred []PhaseAction `json:"deferred,omitempty"`
 
 	// Actors are the per-phase actors the rules named. Such a list is often
 	// computed in an earlier phase (the missions package picks the team
@@ -150,6 +155,7 @@ func (e *Engine) Snapshot() *Snapshot {
 		Round:        e.state.Round,
 		Vars:         copyVars(e.state.Vars),
 		Actors:       copyActors(e.state.Actors),
+		Deferred:     append([]PhaseAction(nil), e.state.Deferred...),
 		Winner:       e.winner,
 		Players:      e.state.snapshotPlayers(),
 		RoundContext: e.state.snapshotRoundCtx(),
@@ -275,6 +281,7 @@ func (e *Engine) restoreBoard(snap *Snapshot) error {
 
 	e.state.Vars = copyVars(snap.Vars)
 	e.state.Actors = copyActors(snap.Actors)
+	e.state.Deferred = append([]PhaseAction(nil), snap.Deferred...)
 	e.winner = snap.Winner
 	e.state.restoreProgress(snap.Phase, snap.Round, snap.RoundContext)
 
