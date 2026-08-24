@@ -38,12 +38,15 @@ jobs:
       - name: Run tests
         run: go test -v -race ./...
 
-      # Coverage over the kernel package alone, leaving out enginetest: that is
-      # a test harness for rules packages, the code driving it lives in another
-      # module, and cross-module coverage cannot be measured. Counting it would
-      # drag 87.8% down to 76.9%, which is an artefact of the measurement.
+      # Coverage over the kernel plus the three rules packages under games/,
+      # and nothing else. Left out: enginetest (a harness driven from games/,
+      # with no tests of its own and none wanted) and example/ (those are
+      # users, not subjects; counting them only dilutes the number).
       - name: Coverage
-        run: go test -covermode=atomic -coverprofile=coverage.out . && go tool cover -func=coverage.out | tail -1
+        run: >
+          go test -covermode=atomic -coverprofile=coverage.out
+          -coverpkg=github.com/Zereker/hiddenrole,github.com/Zereker/hiddenrole/games/werewolf,github.com/Zereker/hiddenrole/games/missions,github.com/Zereker/hiddenrole/games/onenight
+          ./... && go tool cover -func=coverage.out | tail -1
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

@@ -6,7 +6,7 @@
 >
 > **The API is frozen** -- the contract clause by clause and the freeze
 > declaration are in [API.md](API.md), and the order in which we got here is
-> in [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md)
+> in [ROADMAP.md](docs/ROADMAP.md)
 > (archived). The structure of the code as it stands is in
 > [ARCHITECTURE.md](ARCHITECTURE.md), and the comparison with other engines is
 > in [PRIOR-ART.md](PRIOR-ART.md).
@@ -77,7 +77,7 @@ Side by side:
 **This test has been violated, and every violation left the same wound**: an
 `if role == X`, a `case EventY`, or a field only one ruleset could use, inside
 the kernel. Seven of them are recorded in
-[`missions/SCARS.md`](https://github.com/Zereker/werewolf/blob/main/missions/SCARS.md).
+[`missions/SCARS.md`](games/missions/SCARS.md).
 
 ### The test's other side: the kernel may offer a **default**, not make **law**
 
@@ -489,14 +489,14 @@ is so that it can be honoured next time.**
 ## 8. Abstraction gaps: what class of game cannot be built today
 
 **Ordered by strength of evidence, which is directly the implementation
-priority** (see [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md)).
+priority** (see [ROADMAP.md](docs/ROADMAP.md)).
 
 ### 8.1 With evidence
 
 | Gap | Evidence | What it blocks |
 |---|---|---|
 | **aliveness is a privileged bool, one bit only** | the mission-based rules use it nowhere, yet pay for it in a snapshot field, a view field and three default decisions | Blood on the Clocktower's poisoned / drunk / protected are parallel state bits; "silenced but alive" |
-| ~~**identity is fixed at seating**~~ | **judged wrong, withdrawn.** The third rules package (One Night, exactly the one named here) proved the opposite: what a card-swapping game wants is not "a writable `RoleType`" but **two layers of identity** -- the card dealt (decides what you do at night, never changes) and the card in hand now (decides which side you score for, does change). One layer from the kernel and one from the rules is exactly enough; flatten them and the robber wakes up with the wolves and the game collapses on the spot. **Immutability is the value here.** See [onenight/SCARS.md scar 0](https://github.com/Zereker/werewolf/blob/main/onenight/SCARS.md) | — |
+| ~~**identity is fixed at seating**~~ | **judged wrong, withdrawn.** The third rules package (One Night, exactly the one named here) proved the opposite: what a card-swapping game wants is not "a writable `RoleType`" but **two layers of identity** -- the card dealt (decides what you do at night, never changes) and the card in hand now (decides which side you score for, does change). One layer from the kernel and one from the rules is exactly enough; flatten them and the robber wakes up with the wolves and the game collapses on the spot. **Immutability is the value here.** See [onenight/SCARS.md scar 0](games/onenight/SCARS.md) | — |
 | **the detour queue's naming and docs still say "death ability"** | the concept has been generalised, the words did not follow | pure documentation debt, zero risk |
 
 The first two share one fix: **demote them to canonical keys in the variable
@@ -514,11 +514,11 @@ from "a variable table plus two privileged fields" into "a variable table".
 
 **None of these four moves until a game really runs into it** -- and "ran into
 it" is not the same as "change it now": it still has to pass the test at the
-top of [`SCARS.md`](https://github.com/Zereker/werewolf/blob/main/onenight/SCARS.md)
+top of [`SCARS.md`](games/onenight/SCARS.md)
 (**if you can work around it, it is an ergonomics problem, not an abstraction
 problem**), and "should a breaking signature change wait for a second
 collision". The reasoning is in the next section and in
-[ROADMAP.md §0](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md).
+[ROADMAP.md §0](docs/ROADMAP.md).
 
 ---
 

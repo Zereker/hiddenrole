@@ -12,15 +12,16 @@ build:
 test:
 	go test ./...
 
-# Coverage is measured over the kernel package alone (`.`, not `./...`), which
-# leaves out the enginetest sub-package: that is a test harness for rules
-# packages, it has no tests of its own and should not have any -- the code that
-# drives it lives in another module, and cross-module coverage cannot be
-# measured anyway. Counting it drags the number from 87.8% down to 76.9%, and
-# those 11 points are an artefact of how it is measured, not code that is
-# untested.
+# Coverage is measured over the kernel and the three rules packages under
+# games/, and nothing else.
+#
+# Left out: enginetest (a harness for rules packages, no tests of its own and
+# it should not have any -- it is driven from games/, whose own tests already
+# count) and example/ (those are users, not subjects; counting them only
+# dilutes the number).
 test-cover:
-	go test -coverprofile=coverage.out . && go tool cover -func=coverage.out | tail -1
+	go test -coverpkg=github.com/Zereker/hiddenrole,github.com/Zereker/hiddenrole/games/werewolf,github.com/Zereker/hiddenrole/games/missions,github.com/Zereker/hiddenrole/games/onenight \
+		-coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
 
 race:
 	go test -race ./...

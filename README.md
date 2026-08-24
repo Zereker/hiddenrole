@@ -32,9 +32,9 @@ two of which share a single value:
 
 | Rules package | What it plays | What it proves |
 |---|---|---|
-| [werewolf](https://github.com/Zereker/werewolf) | werewolf | elimination is the core mechanic, eight phases in a cycle |
-| [werewolf/missions](https://github.com/Zereker/werewolf/tree/main/missions) | mission-based play (nominate / vote / mission / assassinate) | it runs with **nobody ever eliminated**; transitions are decided by resolution results |
-| [werewolf/onenight](https://github.com/Zereker/werewolf/tree/main/onenight) | one-night card swapping | identity has **two layers**: the card dealt decides what you do at night, the card in hand decides which side you score for |
+| [werewolf](games/werewolf) | werewolf | elimination is the core mechanic, eight phases in a cycle |
+| [missions](games/missions) | mission-based play (nominate / vote / mission / assassinate) | it runs with **nobody ever eliminated**; transitions are decided by resolution results |
+| [onenight](games/onenight) | one-night card swapping | identity has **two layers**: the card dealt decides what you do at night, the card in hand decides which side you score for |
 
 Writing the third one forced **zero breaking API changes** -- [the API is
 frozen](API.md), guarded by `TestAPI_SurfaceIsPinned` and
@@ -49,7 +49,27 @@ the test goes red.
 | **what it should look like, and why so abstract** | [DESIGN.md](DESIGN.md) |
 | how the code is organised today | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | how others did it, where we are ahead and where we are behind | [PRIOR-ART.md](PRIOR-ART.md) |
-| what writing a rules package ran into | [missions](https://github.com/Zereker/werewolf/blob/main/missions/SCARS.md) · [onenight](https://github.com/Zereker/werewolf/blob/main/onenight/SCARS.md) |
+| what writing a rules package ran into | [missions](games/missions/SCARS.md) · [onenight](games/onenight/SCARS.md) |
+| how to play Werewolf with this | [`games/werewolf/README.md`](games/werewolf/README.md) (Chinese) · [English overview](games/werewolf/README.en.md) |
+
+## What is in this repository
+
+```
+.                     the kernel: types.go, engine.go, phase.go, view.go ...
+├── enginetest/       random games and seven general invariants, for your own rules package
+├── games/            three rules packages, all peers, all on the public API only
+│   ├── werewolf/     Werewolf, the Chinese ruleset
+│   ├── missions/     The Resistance and its Avalon variant
+│   └── onenight/     One Night Ultimate Werewolf
+├── example/          runnable: a CLI host, a TCP server, a third-party role
+└── docs/ROADMAP.md   how this got here (archived)
+```
+
+The kernel and the three games are **four separate packages in one module**.
+That the games use only the public API is enforced by the compiler either way
+-- Go does not let one package reach into another's unexported names -- and
+the kernel has no `internal/` at all, so every entry point `games/` uses is
+one you can use too.
 
 When writing your own rules package, [`enginetest`](enginetest/) gives you
 random games and seven general invariants (`RunFuzz`). Not one of them knows
@@ -351,7 +371,7 @@ e.OnEvent(func(ev *hiddenrole.Event) {
 ```
 
 Wiring the engine into a server is exactly this; see
-[`example/netserver`](https://github.com/Zereker/werewolf/tree/main/example/netserver)
+[`example/netserver`](example/netserver)
 in the werewolf repository.
 
 ## Unit-testing your own resolver
@@ -428,9 +448,10 @@ same machinery the kernel uses.
 go doc github.com/Zereker/hiddenrole
 ```
 
-The package documentation is in [`doc.go`](doc.go). For a real, running rules
-package see [Zereker/werewolf](https://github.com/Zereker/werewolf) -- every
-entry point it uses is one you can use too.
+The package documentation is in [`doc.go`](doc.go). For real, running rules
+packages see [`games/`](games) -- every entry point the three of them use is
+one you can use too, and the compiler is what says so: they are ordinary
+packages outside this one, with no access to anything you lack.
 
 ## License
 

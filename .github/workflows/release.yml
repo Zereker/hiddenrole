@@ -1,0 +1,103 @@
+name: Release
+
+# Triggered by hand: Actions -> Release -> Run workflow, fill in the version.
+#
+# Deliberately not "on tag push" -- that would need somebody to push the tag
+# from a local machine first, which puts "who gets to tag" back into local
+# environments. Here CI creates both the tag and the Release, and no local
+# permissions are needed.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, e.g. v1.3.0 (must already have a section in CHANGELOG.md)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The gates before publishing. Better to fail here than to ship a release
+      # nobody can open.
+      - name: Check version format
+        run: |
+          VERSION='${{ inputs.version }}'
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "version must look like v1.3.0, got: $VERSION"
+            exit 1
+          fi
+
+          # v2 and up require a /vN suffix on the module path, or go get
+          # cannot fetch it. This project deliberately does not go down the
+          # /v2 road, so block it here rather than ship a release nobody can
+          # use.
+          MAJOR=$(echo "$VERSION" | sed -E 's/^v([0-9]+)\..*/\1/')
+          MODULE=$(head -1 go.mod | awk '{print $2}')
+          if [ "$MAJOR" -ge 2 ] && ! echo "$MODULE" | grep -q "/v$MAJOR\$"; then
+            echo "tagging $VERSION needs go.mod's module path changed to $MODULE/v$MAJOR"
+            echo "this project's settled trade-off is to avoid /vN, see CHANGELOG"
+            exit 1
+          fi
+
+      - name: Check tag does not exist
+        run: |
+          if git rev-parse '${{ inputs.version }}' >/dev/null 2>&1; then
+            echo "tag ${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      # A release with no notes should not exist. This turns the CHANGELOG
+      # from "nice to have" into "no section, no release".
+      - name: Extract release notes
+        run: |
+          # Literal prefix comparison, not a regex: the dots in a version
+          # match any character under a regex, so v1.3.0 would also hit a
+          # section like v1.3.0x.
+          awk -v ver='## ${{ inputs.version }}' '
+            !found && substr($0, 1, length(ver)) == ver &&
+              (length($0) == length(ver) || substr($0, length(ver) + 1, 1) == " ") {
+              found = 1; next
+            }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md has no '## ${{ inputs.version }}' section"
+            exit 1
+          fi
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      # Never tag a red tree.
+      - name: Verify
+        run: |
+          go build ./...
+          go vet ./...
+          go test -race ./...
+          go run ./example > /dev/null
+          go run ./example/cli -seed 7 < example/cli/testdata/demo.txt > /dev/null
+
+      # gh is preinstalled on the runner, and this command creates the tag too.
+      - name: Create tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create '${{ inputs.version }}' \
+            --target "$GITHUB_SHA" \
+            --title '${{ inputs.version }}' \
+            --notes-file release-notes.md

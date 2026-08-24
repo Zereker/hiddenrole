@@ -29,7 +29,7 @@
 > name in `github.com/Zereker/hiddenrole` and says what each one promises.
 >
 > The design intent is in [DESIGN.md](DESIGN.md) and the implementation order
-> in [ROADMAP.md](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md).
+> in [ROADMAP.md](docs/ROADMAP.md).
 > This document is about the **contract** only: what exists, how to use it,
 > and whether it changes.
 >
@@ -690,7 +690,7 @@ never landed" shows up in a unit test.
 7. **`Effect` is the only write path** (`Engine.Apply` is the same write
    point, not a second one)
 
-### What will change ([ROADMAP.md phase 2](https://github.com/Zereker/werewolf/blob/main/docs/ROADMAP.md))
+### What will change ([ROADMAP.md phase 2](docs/ROADMAP.md))
 
 | How it changes | Who it affects |
 |---|---|
@@ -830,11 +830,14 @@ snapshot serialiser itself drops a field it drops it on both sides, so the
 comparison is blind -- the "snapshot loses `Actors`" mutation survived on the
 spot. With behaviour comparison added, the first run caught three real bugs.
 
-It used to be called `internal/gamefuzz`. `internal/` can only be imported
-from within the same module, and the engine had to become its own library --
-the rules packages then live in another module and could not use a line of it.
-Being public, it is pinned by `TestAPI_SurfaceIsPinned` along with everything
-else, or it would be a back door around the freeze.
+It used to be called `internal/gamefuzz`, and was made public when the engine
+became its own library and the rules packages moved into another module, where
+`internal/` would have been unreachable. The rules packages have since moved
+back in under `games/`, so `internal/` would work again -- but it stays public
+on purpose: a harness only this repository can use is not evidence that a
+third party can test their own rules package the same way. Being public, it is
+pinned by `TestAPI_SurfaceIsPinned` along with everything else, or it would be
+a back door around the freeze.
 
 ---
 
